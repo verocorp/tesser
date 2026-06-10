@@ -10,8 +10,8 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 
 | Task | What | Status |
 |------|------|--------|
-| T1 | Repo scaffold | done, local — push pending phase close (53682ed) |
-| T2 | Specs: contract.yaml + digest-schema.yaml | done, local (0fa8bc8) |
+| T1 | Repo scaffold | done, pushed (53682ed) |
+| T2 | Specs: contract.yaml + digest-schema.yaml | done, pushed (0fa8bc8) |
 | T3 | scripts/log-invocation + logger tests | next |
 | T8 | scripts/validate-digest | next (pairs with T3) |
 | T4 | SKILL.md playbook | pending |
@@ -19,6 +19,8 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T6 | E2E fixtures + suite | pending |
 | T7 | Eval stub (RUN_EVAL-gated) | pending |
 | T9 | Digest corpus seed | pending (supervised) |
+
+Phase 1 (T1+T2) closed 2026-06-10: deterministic gates n/a (no tests exist yet), adversarial contract audit passed (a1083d2), code review run at high effort over the full phase diff (10 spec-level findings reported to the maintainer; spec files unchanged pending contract decisions), pushed.
 
 ## Orchestration rules
 
