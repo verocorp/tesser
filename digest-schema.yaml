@@ -1,0 +1,64 @@
+# tesser digest schema — spec-as-data (D2/1A, D5/5A)
+#
+# A digest is the verified-map page for one library at one pinned commit:
+# a single markdown file with YAML frontmatter (provenance) and a markdown
+# body (the grounded overview and cited claims). Consumed by
+# scripts/validate-digest and tests/structure.test.ts (Type-A tests).
+# Change only with a matching build-contract decision (see CLAUDE.md).
+
+version: 1
+
+file:
+  format: markdown with YAML frontmatter
+  naming: "<library>@<sha12>.md" # sha12 = first 12 hex chars of the pinned commit
+  locations:
+    bundled: digests/ # ships with the skill, curated keepers
+    local: ~/.tesser/digests/ # persisted by cold runs after validation (D12)
+
+frontmatter:
+  required:
+    repo:
+      type: string
+      pattern: "^(https://|git@).+" # canonical clone URL
+    sha:
+      type: string
+      pattern: "^[0-9a-f]{40}$" # full pinned commit, lowercase hex
+    env:
+      type: object # environment the run happened in
+      required_keys: [os, arch]
+      # further keys free-form, e.g. toolchain versions: {go: 1.24.1, python: 3.13.2}
+    commands:
+      type: list # every command run, in execution order
+      min_items: 1
+      item:
+        cmd: { type: string }
+        exit_code: { type: integer }
+    ts:
+      type: string
+      format: iso8601-utc # when the run happened, e.g. 2026-06-10T18:04:00Z
+
+  optional:
+    dependency_kind:
+      type: integer
+      enum: [1, 2, 3, 4, 5] # D20 ladder: 1 clonable CLI / 2 clonable library /
+      # 3 SDK-of-hosted-service / 4 hosted-closed / 5 heavy-infra
+    truth_grade:
+      type: string
+      enum: [run, inspect, docs] # highest grade the digest's claims reach
+    question:
+      type: string # the developer question that triggered the run, if any
+
+body:
+  # D18 citation grammar. Full form cites an explicit commit; inside a digest
+  # the @sha12 suffix may be omitted and defaults to the frontmatter sha.
+  citation_grammar:
+    full: "⟦path:Lstart-Lend⟧@<sha12>"
+    in_digest: "⟦path:Lstart-Lend⟧"
+    token_pattern: "⟦[^⟧:]+:L[0-9]+-L[0-9]+⟧(@[0-9a-f]{12})?"
+  rules:
+    - every load-bearing claim carries a citation
+    - quote-in-range: every cited path must exist and every cited line range
+      must be within the file's length at the frontmatter sha (deterministic
+      check, scripts/validate-digest, D18)
+    - claims below the digest's truth_grade are individually labeled with
+      their own grade

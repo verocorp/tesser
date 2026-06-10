@@ -1,0 +1,84 @@
+# tesser behavior contract — spec-as-data (D5/5A)
+#
+# Tests pin against this file: tests/structure.test.ts reads the clause list
+# and asserts SKILL.md contains the literal anchor `contract:<id>` for every
+# clause. Change a clause only with a matching build-contract decision
+# (see CLAUDE.md for where the decision record lives).
+
+version: 1
+
+# SKILL.md must contain this literal string for each clause below.
+anchor_format: "contract:<id>"
+
+# Byte budget for SKILL.md, pinned here so the test reads it as data.
+skill_md:
+  max_bytes: 16384
+
+clauses:
+  - id: cited-claims
+    delta: true # value-over-baseline delta (i)
+    source: ["design §Narrowest Wedge (i)", "D18"]
+    statement: >-
+      Never assert from memory as established fact. Every load-bearing claim
+      in a delivered answer carries a citation in the grammar
+      ⟦path:Lstart-Lend⟧@SHA, resolving to the cloned source at the recorded
+      SHA. Anything not yet citable is explicitly labeled with its current
+      truth-grade rather than asserted.
+
+  - id: always-verify
+    delta: true # value-over-baseline delta (ii)
+    source: ["design §Narrowest Wedge (ii)", "D3/2A", "D20"]
+    statement: >-
+      Every run builds and verifies by use, credentials-free, via the
+      fallback ladder: runnable binary > test suite > minimal example.
+      Preflight classifies the dependency kind (1 clonable CLI / 2 clonable
+      library / 3 SDK-of-hosted-service / 4 hosted-closed / 5 heavy-infra)
+      and, when the kind caps verification below run-grade, states the
+      truth-grade ceiling before working and discloses the delivered grade
+      in the answer.
+
+  - id: question-led
+    delta: true # value-over-baseline delta (iii)
+    source: ["design §Narrowest Wedge (iii)"]
+    statement: >-
+      The developer's actual question leads every response. Build and
+      verification reporting never buries the answer; survey output exists
+      to serve the question, not the reverse.
+
+  - id: digest-consult
+    delta: true # value-over-baseline delta (iv)
+    source: ["design §Narrowest Wedge (iv)", "D12", "D14"]
+    statement: >-
+      Before cold work, consult bundled digests (digests/ in the skill repo)
+      and local digests (~/.tesser/digests/). When a digest for the library
+      is used: serve it with full provenance, flag any SHA drift between the
+      digest and the repo's current state, and log the named digest path
+      (consulted_cached_digest). Cold runs persist a new digest to
+      ~/.tesser/digests/ only after it passes scripts/validate-digest.
+
+  - id: invocation-log
+    delta: true # value-over-baseline delta (v)
+    source: ["design §Instrument", "D4/3A", "D6/6A", "D14"]
+    statement: >-
+      Every invocation opens a log record via scripts/log-invocation at
+      start and finalizes it at end with outcome one of completed |
+      completed-unverified | install-failure | aborted. Any failed step
+      (clone, survey, build, verify) captures failing_command and exit_code.
+      The log is local-only at ~/.tesser/log.jsonl; nothing leaves the
+      machine.
+
+  - id: idempotent-reuse
+    delta: false
+    source: ["D11"]
+    statement: >-
+      At the same repo@SHA, reuse the existing clone, build artifacts, and
+      digest rather than redoing work. Redo only on SHA change, missing or
+      corrupt state, or explicit developer request.
+
+  - id: provisional-first
+    delta: false
+    source: ["D19"]
+    statement: >-
+      Serve a provisional answer immediately at the current truth-grade,
+      explicitly labeled as provisional. Upgrade it in place when build and
+      verify land. Never block the developer's flow on a compile.
