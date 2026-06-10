@@ -30,7 +30,15 @@ Strategy, lineage, and experiment context live in the brain at `projects/tesser`
 
 - One subagent per T-task, EXCEPT: T2 specs and T4 SKILL.md are authored in the main loop (taste-bearing), and T9 pre-runs are always supervised (digests are rubric gold).
 - Commit per task, files staged individually; the orchestrating session commits, not subagents.
-- Phase checkpoint protocol: pending decision D1 (verification ladder); record it here once decided.
+
+## Phase checkpoint protocol (decided 2026-06-10, D1 = full ladder)
+
+A phase is done only when every applicable rung passes and the build-status ledger above is updated in the phase's final commit:
+
+1. **Deterministic gates** — every test that exists as of the phase passes.
+2. **Adversarial contract audit** — a fresh-context subagent (never the builder) receives the phase's tasks-JSONL lines, the relevant D-decisions, and the phase diff, and attempts to REFUTE "this phase is complete as specified." It returns a per-criterion met / unmet / uncheckable table with file:line citations, plus any silent additions beyond spec. Unmet findings are fixed or explicitly accepted before the phase closes.
+3. **Code review** — /gstack-review over the accumulated phase diff before push.
+4. **Human taste gate** — Phase 3: maintainer read of SKILL.md; Phase 5: maintainer approves every digest (rubric gold). Other phases: none.
 
 ## Repo rules
 
