@@ -16,8 +16,8 @@ Strategy, lineage, and experiment context live in the brain at `projects/tesser`
 
 | Task | What | Status |
 |------|------|--------|
-| T1 | Repo scaffold | done (53682ed) |
-| T2 | Specs: contract.yaml + digest-schema.yaml | done (0fa8bc8) |
+| T1 | Repo scaffold | done, local — push pending phase close (53682ed) |
+| T2 | Specs: contract.yaml + digest-schema.yaml | done, local (0fa8bc8); 7 clauses per D19 — the tasks JSONL's "6 clauses" is stale |
 | T3 | scripts/log-invocation + logger tests | next |
 | T8 | scripts/validate-digest | next (pairs with T3) |
 | T4 | SKILL.md playbook | pending |

@@ -35,7 +35,9 @@ clauses:
       library / 3 SDK-of-hosted-service / 4 hosted-closed / 5 heavy-infra)
       and, when the kind caps verification below run-grade, states the
       truth-grade ceiling before working and discloses the delivered grade
-      in the answer.
+      in the answer. A prior verified run at the same repo@SHA, served via
+      a validated digest or reused artifacts, satisfies this clause; SHA
+      drift between digest and repo is flagged per digest-consult.
 
   - id: question-led
     delta: true # value-over-baseline delta (iii)
@@ -58,14 +60,15 @@ clauses:
 
   - id: invocation-log
     delta: true # value-over-baseline delta (v)
-    source: ["design §Instrument", "D4/3A", "D6/6A", "D14"]
+    source: ["design §Instrument", "D4/3A", "D6/6A", "D14", "D20"]
     statement: >-
       Every invocation opens a log record via scripts/log-invocation at
       start and finalizes it at end with outcome one of completed |
       completed-unverified | install-failure | aborted. Any failed step
       (clone, survey, build, verify) captures failing_command and exit_code.
-      The log is local-only at ~/.tesser/log.jsonl; nothing leaves the
-      machine.
+      Every record logs dependency_kind (the D20 preflight classification),
+      so unservable moments become demand data. The log is local-only at
+      ~/.tesser/log.jsonl; nothing leaves the machine.
 
   - id: idempotent-reuse
     delta: false

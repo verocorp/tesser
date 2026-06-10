@@ -31,7 +31,7 @@ At invocation, tesser runs a quiet `git pull --ff-only` in its own skill directo
 
 tesser keeps all persisted state under `~/.tesser/`:
 
-- `log.jsonl` — one record per invocation: timestamp, repo, SHA, question, outcome, and whether a cached digest was consulted.
+- `log.jsonl` — one record per invocation: timestamp, repo, SHA, question, invocation source (seeded or self-initiated), dependency kind, outcome, the failing command and exit code when a step fails, and the path of any cached digest consulted.
 - a first-run marker
 - `clones/` — the repos it has cloned
 - `digests/` — the markdown digests it produces
