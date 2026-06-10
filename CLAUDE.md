@@ -4,20 +4,14 @@ tesser is a Claude Code skill that answers a developer's question about an unfam
 
 ## Build contract — read before any tesser build session
 
-The canonical build artifacts live on the maintainer's machine. They are local-only and are NOT in this repo:
-
-- Design doc + post-review addendum (D1–D20): `~/.gstack/projects/devindex/chris-evidence-math-cold-start-corrected-design-20260609-161549.md`
-- Test plan + decision list + coverage matrix: `~/.gstack/projects/devindex/chris-evidence-math-cold-start-corrected-eng-review-test-plan-20260610-101016.md`
-- Tasks JSONL (T1–T9): `~/.gstack/projects/devindex/tasks-eng-review-20260610-103639.jsonl`
-
-Strategy, lineage, and experiment context live in the brain at `projects/tesser` (`~/workspace/brain/projects/tesser.md`) — never in this repo. This file carries implementation state and conventions only.
+The canonical build-contract artifacts (design doc, test plan, task list) and strategy context live on the maintainer's machine, not in this repo. Maintainers: the routing to those artifacts is in `CLAUDE.local.md` (gitignored, auto-loaded). Build sessions must read the contract artifacts before changing anything; this file carries implementation state and conventions only.
 
 ## Build status (update this ledger as part of each phase's final commit)
 
 | Task | What | Status |
 |------|------|--------|
 | T1 | Repo scaffold | done, local — push pending phase close (53682ed) |
-| T2 | Specs: contract.yaml + digest-schema.yaml | done, local (0fa8bc8); 7 clauses per D19 — the tasks JSONL's "6 clauses" is stale |
+| T2 | Specs: contract.yaml + digest-schema.yaml | done, local (0fa8bc8) |
 | T3 | scripts/log-invocation + logger tests | next |
 | T8 | scripts/validate-digest | next (pairs with T3) |
 | T4 | SKILL.md playbook | pending |
@@ -28,7 +22,7 @@ Strategy, lineage, and experiment context live in the brain at `projects/tesser`
 
 ## Orchestration rules
 
-- One subagent per T-task, EXCEPT: T2 specs and T4 SKILL.md are authored in the main loop (taste-bearing), and T9 pre-runs are always supervised (digests are rubric gold).
+- One subagent per T-task, EXCEPT: T2 specs and T4 SKILL.md are authored in the main loop (taste-bearing), and T9 pre-runs are always supervised.
 - Commit per task, files staged individually; the orchestrating session commits, not subagents.
 
 ## Phase checkpoint protocol (decided 2026-06-10, D1 = full ladder)
