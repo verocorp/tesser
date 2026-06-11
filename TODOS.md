@@ -2,6 +2,16 @@
 
 Deferred work with context. Items land here only via a review decision; each carries enough context to pick up cold.
 
+## Single-language consolidation (post-v1)
+
+- **What:** Get the repo to ONE implementation language. Today it is split: the runtime scripts are Python (`scripts/validate-digest`, `scripts/log-invocation`, `scripts/setup`) and the test harness is TypeScript/Node (vitest). YAML is parsed by two libraries against the same spec files — PyYAML at runtime, js-yaml in tests (js-yaml is already a devDependency).
+- **Principle (Chris, 2026-06-11 Phase-3 close):** one language unless there is a strong reason to add a second to do something specialized the primary language cannot satisfy. Which language wins is NOT decided yet; the requirement is to converge on one.
+- **The two candidate end-states:**
+  - **All Node/TS:** rewrite the three scripts in TS using js-yaml (already vendored). Deletes the entire D32 install apparatus (venv, `scripts/setup`, `requirements.txt`, the re-exec-into-venv logic, the exit-3 path, `setup.test.ts`) and collapses YAML parsing to one library. Cost: makes Node + `npm install` a RUNTIME requirement for every user (today `package.json` is maintainer-only); stock macOS/Linux ship python3, not Node — so this raises the baseline for the broad audience while lowering it for the Claude-Code cohort. Not a 1:1 port: the validator leans on PyYAML-specific coercion (unquoted ISO timestamps → `datetime` in `check_iso8601_utc`; `bool`-is-subclass-of-`int` in the `exit_code` check) that js-yaml's schema does differently and would need re-validation.
+  - **All Python:** drop the Node test harness, rewrite the gates in Python (pytest). Keeps python3's stock-machine ubiquity and the existing scripts; cost is reauthoring 109 gates and losing the spec-as-data symmetry the TS tests currently give.
+- **Why it matters:** two languages = two toolchains, two YAML libraries that can disagree on coercion, and a runtime/test split that complicates the install story (D32 exists largely because of it).
+- **Depends on / blocked by:** post-v1. Cheapest to act on BEFORE the script set grows — each new script written in the second language raises the porting cost. Decide the winning language as part of this item.
+
 ## Footnote-style citation shorthand (⟦n⟧ + references block)
 
 - **What:** Allow short inline `⟦1⟧` markers referencing an end-of-digest block (`⟦1⟧ = ⟦path:Lstart-Lend⟧@sha12`), cutting inline citation noise from ~35 chars to 3.
