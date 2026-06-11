@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""tesser setup — one-time environment setup (D32).
+
+Creates the private virtualenv at <state root>/venv (state root: ~/.tesser/,
+or TESSER_HOME — the tests-only override, same rule as the other scripts) and
+installs requirements.txt into it. scripts/validate-digest re-execs into this
+venv's python, so its dependencies never touch the system interpreter.
+
+Idempotent on the requirements hash: the venv carries a stamp file
+(.requirements-sha256) recording the sha256 of requirements.txt it was
+installed from. Re-running with an unchanged requirements.txt is a no-op;
+a changed requirements.txt triggers a reinstall and a new stamp. The venv
+is only CREATED when its python is missing — a reinstall into an existing
+venv does not recreate it.
+
+Exit codes: 0 success (including no-op), 1 setup failure.
+Stdlib only — this script must run before any dependency exists.
+"""
+
+import hashlib
+import os
+import subprocess
+import sys
+
+STAMP_NAME = ".requirements-sha256"
+
+
+def state_root() -> str:
+    """Resolve the state root: TESSER_HOME (tests only) or ~/.tesser/."""
+    override = os.environ.get("TESSER_HOME")
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".tesser")
+
+
+def main() -> int:
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    requirements = os.path.join(repo_root, "requirements.txt")
+    if not os.path.isfile(requirements):
+        sys.stderr.write(f"setup: requirements.txt not found at {requirements}\n")
+        return 1
+    with open(requirements, "rb") as f:
+        req_hash = hashlib.sha256(f.read()).hexdigest()
+
+    root = state_root()
+    venv = os.path.join(root, "venv")
+    venv_python = os.path.join(venv, "bin", "python3")
+    stamp_path = os.path.join(venv, STAMP_NAME)
+
+    stamp = None
+    if os.path.isfile(stamp_path):
+        with open(stamp_path, "r", encoding="utf-8") as f:
+            stamp = f.read().strip()
+    if os.access(venv_python, os.X_OK) and stamp == req_hash:
+        print(f"setup: venv at {venv} is up to date (requirements unchanged)")
+        return 0
+
+    # The log may live next to the venv; keep the state root private (0700,
+    # same posture as scripts/log-invocation).
+    os.makedirs(root, mode=0o700, exist_ok=True)
+
+    if not os.access(venv_python, os.X_OK):
+        print(f"setup: creating venv at {venv}")
+        created = subprocess.run([sys.executable, "-m", "venv", venv])
+        if created.returncode != 0:
+            sys.stderr.write(f"setup: venv creation failed (exit {created.returncode})\n")
+            return 1
+
+    print(f"setup: installing requirements.txt into {venv}")
+    pip = os.path.join(venv, "bin", "pip")
+    installed = subprocess.run([pip, "install", "--quiet", "-r", requirements])
+    if installed.returncode != 0:
+        sys.stderr.write(
+            f"setup: pip install failed (exit {installed.returncode}); "
+            "no stamp written — re-run scripts/setup\n"
+        )
+        return 1
+
+    # Stamp last, only after a successful install: a failed install must
+    # leave the venv unstamped so the next run retries.
+    with open(stamp_path, "w", encoding="utf-8") as f:
+        f.write(req_hash + "\n")
+    print("setup: done")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

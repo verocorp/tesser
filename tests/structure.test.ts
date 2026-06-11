@@ -271,6 +271,26 @@ describe("spec-integrity: log-schema.yaml", () => {
       "aborted",
     ]);
   });
+
+  it("lifecycle join rule (D36): first schema-valid finalized wins; anomalies tallied", () => {
+    const rule = String(logSchema.lifecycle.join_rule ?? "");
+    expect(rule).toMatch(/first schema-valid finalized line per id wins/);
+    expect(rule).toMatch(/anomalies, tallied separately/);
+    expect(rule).toMatch(/read-side/); // never written back to the log
+  });
+
+  it("sha presence (D33): logger-enforced for completed; presence means a pin for completed-unverified", () => {
+    const presence = String(logSchema.fields.sha.presence ?? "");
+    expect(presence).toMatch(/required when outcome is completed \(logger-enforced\)/);
+    expect(presence).toMatch(/presence means a pin/);
+  });
+
+  it("digest_sha256 (D35/D10) is passive evidence: present in the schema, never verified", () => {
+    const field = logSchema.fields.digest_sha256;
+    expect(field).toBeDefined();
+    expect(field.pattern).toBe("^[0-9a-f]{64}$");
+    expect(String(field.presence)).toMatch(/persisted or served/);
+  });
 });
 
 // ============================================================================

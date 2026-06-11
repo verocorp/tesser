@@ -8,18 +8,28 @@ read as DATA at runtime from the repo root relative to this script — the
 patterns and enums live there, not here).
 
 Checks, in order:
-  1. File parses: YAML frontmatter delimited by --- lines + markdown body.
+  1. File parses: UTF-8, YAML frontmatter delimited by --- lines + markdown
+     body.
   2. Frontmatter required fields present; patterns/enums/shapes enforced.
-  3. Filename rule (D27/D28): <org>--<repo>@<sha12>.md, sha12 == sha[0:12],
-     org--repo == normalized identity of the frontmatter repo URL.
-  4. Citation grammar v1.1 (D24): token-totality, suffix-equals-sha,
-     range rule 1 <= Lstart <= Lend.
-  5. Quote-in-range (D18), only when --clone is given: every cited path
+  3. Digest path rule (D27/D31): the path ends with
+     <host>/<org-path>/<repo>@<sha12>.md, sha12 == sha[0:12], and the
+     segments are the normalized identity of the frontmatter repo URL.
+  4. Citation grammar v1.1 (D24, tightened by D37): token-totality,
+     suffix-equals-sha, range rule 1 <= Lstart <= Lend, path-normality
+     (repo-relative paths only).
+  5. Clone identity binding (D38), only when --clone is given: when the
+     clone has an origin remote, its normalized identity must equal the
+     frontmatter repo's. A remoteless clone skips with a note.
+  6. Quote-in-range (D18), only when --clone is given: every cited path
      exists at the frontmatter sha and Lend <= file line count at that sha.
      Without --clone this check is reported as skipped.
 
 All failures are collected (not fail-fast) and written to stderr, one per
-line. Exit codes: 0 valid, 1 invalid, 2 usage error, 3 PyYAML missing.
+line. Exit codes: 0 valid, 1 invalid (a property of the digest), 2 usage
+error, 3 PyYAML missing (run scripts/setup), 4 environment failure — git
+missing, digest-schema.yaml unreadable, or a subprocess timeout (D34).
+Persist rule (D34): 0 persist, 1 discard, 4 keep the digest and retry —
+an environment failure says nothing about the digest itself.
 """
 
 import os
@@ -28,10 +38,42 @@ import subprocess
 import sys
 from datetime import timezone, datetime
 
+
+def _state_root():
+    """TESSER_HOME (tests only) or ~/.tesser/ — same rule as the other
+    scripts."""
+    override = os.environ.get("TESSER_HOME")
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".tesser")
+
+
+def _maybe_reexec_into_venv():
+    """D32: dependencies live in the venv created by scripts/setup, not in
+    the system interpreter. Re-exec into the venv python BEFORE the yaml
+    import so a PyYAML-free system python still validates once setup has
+    run. The env marker prevents an exec loop if the venv python resolves
+    unexpectedly."""
+    if os.environ.get("TESSER_VALIDATE_DIGEST_REEXEC") == "1":
+        return
+    venv_python = os.path.join(_state_root(), "venv", "bin", "python3")
+    if not os.access(venv_python, os.X_OK):
+        return  # setup not run: fall through to the import backstop below
+    if os.path.realpath(sys.executable) == os.path.realpath(venv_python):
+        return
+    os.environ["TESSER_VALIDATE_DIGEST_REEXEC"] = "1"
+    os.execv(venv_python, [venv_python, os.path.abspath(__file__)] + sys.argv[1:])
+
+
+_maybe_reexec_into_venv()
+
 try:
     import yaml
 except ImportError:
-    sys.stderr.write("validate-digest: PyYAML is required: pip install pyyaml\n")
+    sys.stderr.write(
+        "validate-digest: PyYAML is missing — run scripts/setup once to "
+        "create the venv at ~/.tesser/venv, then re-run\n"
+    )
     sys.exit(3)
 
 # sha12 length per D27 (filename rule) and the citation grammar's @<sha12>
@@ -62,14 +104,18 @@ def split_frontmatter(text):
 
 
 def normalize_identity(repo_url):
-    """Derive the normalized identity (host, org, repo) per digest-schema.yaml
-    identity rule (D28). Returns (host, org, repo) or raises ValueError.
+    """Derive the normalized identity (host, segments) per digest-schema.yaml
+    identity rule (D31, amends D28). segments is the FULL namespace path plus
+    the repo name — gitlab.com/group/subgroup/repo keeps all three leading
+    segments, never just the last two. Raises ValueError when no identity is
+    derivable.
 
-    - https://host/org/repo, ssh://git@host/org/repo, scp-style
-      git@host:org/repo all normalize to the same identity
-    - trailing .git stripped; host/org/repo lowercased
-    - file://: host empty; org = parent directory name, repo = repository
-      directory name (.git stripped)
+    - https://host/path, ssh://git@host/path, scp-style git@host:path all
+      normalize to the same identity
+    - trailing .git stripped from the repo segment; host and every segment
+      lowercased
+    - file://: the host segment is the literal 'file'; org = parent
+      directory name, repo = repository directory name (.git stripped)
     """
     url = repo_url.strip()
 
@@ -87,7 +133,7 @@ def normalize_identity(repo_url):
             )
         org = parts[-2].lower()
         repo = strip_git(parts[-1]).lower()
-        return "", org, repo
+        return "file", [org, repo]
 
     host = None
     path = None
@@ -108,11 +154,10 @@ def normalize_identity(repo_url):
     if len(parts) < 2:
         raise ValueError(
             f"cannot derive identity from repo URL {repo_url!r}: "
-            "need org and repo path segments"
+            "need at least one namespace segment and a repo segment"
         )
-    org = parts[-2].lower()
-    repo = strip_git(parts[-1]).lower()
-    return host.lower(), org, repo
+    segments = [p.lower() for p in parts[:-1]] + [strip_git(parts[-1]).lower()]
+    return host.lower(), segments
 
 
 def check_frontmatter(fm, schema, failures):
@@ -245,46 +290,51 @@ def check_iso8601_utc(field, value, failures):
         )
 
 
-def check_filename(digest_path, fm, failures):
-    """Filename rule (D27/D28): basename == <org>--<repo>@<sha12>.md where
-    sha12 == frontmatter sha[0:12] exactly and org--repo is the normalized
-    identity of the frontmatter repo URL."""
+def check_digest_path(digest_path, fm, failures):
+    """Digest path rule (D27/D31): the digest's path ends with
+    <host>/<org-path>/<repo>@<sha12>.md where sha12 == frontmatter sha[0:12]
+    exactly and the segments are the normalized identity of the frontmatter
+    repo URL — a renamed OR re-homed digest is invalid."""
     sha = fm.get("sha")
     repo_url = fm.get("repo")
     if not isinstance(sha, str) or not isinstance(repo_url, str):
         return  # missing/mistyped fields already reported in frontmatter checks
 
-    basename = os.path.basename(digest_path)
-
     try:
-        _host, org, repo = normalize_identity(repo_url)
+        host, segments = normalize_identity(repo_url)
     except ValueError as e:
-        failures.append(f"filename: {e}")
+        failures.append(f"digest-path: {e}")
         return
 
-    expected = f"{org}--{repo}@{sha[:SHA12_LEN]}.md"
-    if basename == expected:
+    sha12 = sha[:SHA12_LEN]
+    expected_tail = [host] + segments[:-1] + [f"{segments[-1]}@{sha12}.md"]
+    actual_parts = os.path.abspath(digest_path).split(os.sep)
+    if actual_parts[-len(expected_tail):] == expected_tail:
         return
 
-    # Mismatch — say which part is wrong when the name is parseable.
+    # Mismatch — say which part is wrong when the basename is parseable.
+    basename = os.path.basename(digest_path)
+    expected_rel = "/".join(expected_tail)
     m = re.match(r"^(.+)@([0-9a-f]+)\.md$", basename)
-    if m:
-        name_part, name_sha12 = m.group(1), m.group(2)
-        if name_sha12 != sha[:SHA12_LEN]:
-            failures.append(
-                f"filename: sha12 '{name_sha12}' does not equal frontmatter "
-                f"sha[0:12] '{sha[:SHA12_LEN]}' (a renamed digest is invalid, D27)"
-            )
-        if name_part != f"{org}--{repo}":
-            failures.append(
-                f"filename: library part '{name_part}' does not equal the "
-                f"normalized identity '{org}--{repo}' derived from the "
-                f"frontmatter repo URL (D28)"
-            )
-    else:
+    if not m:
         failures.append(
-            f"filename: '{basename}' does not follow <org>--<repo>@<sha12>.md; "
-            f"expected '{expected}'"
+            f"digest-path: '{basename}' does not follow <repo>@<sha12>.md; "
+            f"expected a path ending '{expected_rel}' (D27/D31)"
+        )
+        return
+    name_part, name_sha12 = m.group(1), m.group(2)
+    if name_sha12 != sha12:
+        failures.append(
+            f"digest-path: sha12 '{name_sha12}' does not equal frontmatter "
+            f"sha[0:12] '{sha12}' (a renamed digest is invalid, D27)"
+        )
+    actual_dirs = actual_parts[-len(expected_tail):-1]
+    if actual_dirs != expected_tail[:-1] or name_part != segments[-1]:
+        failures.append(
+            f"digest-path: path ending '{'/'.join(actual_dirs + [basename])}' "
+            f"does not match the normalized identity path '{expected_rel}' "
+            f"derived from the frontmatter repo URL (host + full namespace "
+            f"path, D31)"
         )
 
 
@@ -346,6 +396,18 @@ def check_citations(body, fm, schema, failures):
                 f"does not equal frontmatter sha12 @{fm_sha12} "
                 "(suffix-equals-sha, D24)"
             )
+        # Path-normality (D37): only normal repo-relative paths — traversal,
+        # absolute paths, and '.'/empty segments fail at the grammar stage,
+        # before any git resolution.
+        if path.startswith("/") or any(
+            seg in ("", ".", "..") for seg in path.split("/")
+        ):
+            token_ok = False
+            failures.append(
+                f"citation: path '{path}' at body line {line_no} is not a "
+                "normal repo-relative path (no leading /, no '..' or '.' "
+                "segments, no empty segments — path-normality, D37)"
+            )
         if token_ok:
             citations.append((path, lstart, lend))
         idx = m.end()
@@ -353,9 +415,10 @@ def check_citations(body, fm, schema, failures):
     return citations
 
 
-def check_quote_in_range(citations, fm, clone, failures):
+def check_quote_in_range(citations, fm, clone, failures, env_failures):
     """D18: every cited path exists in the clone at the frontmatter sha and
-    every cited Lend <= the file's line count at that sha."""
+    every cited Lend <= the file's line count at that sha. git missing and
+    timeouts are environment failures (D34), not properties of the digest."""
     sha = fm.get("sha")
     if not isinstance(sha, str):
         return
@@ -371,15 +434,15 @@ def check_quote_in_range(citations, fm, clone, failures):
                 cwd=clone, capture_output=True, timeout=30,
             )
         except FileNotFoundError:
-            failures.append(
+            env_failures.append(
                 "quote-in-range: git executable not found on PATH — cannot "
-                "verify citations"
+                "verify citations (environment failure, D34)"
             )
             return
         except subprocess.TimeoutExpired:
-            failures.append(
+            env_failures.append(
                 f"quote-in-range: git timed out reading '{path}' at sha "
-                f"{sha[:SHA12_LEN]} (30s bound)"
+                f"{sha[:SHA12_LEN]} (30s bound; environment failure, D34)"
             )
             line_counts[path] = None
             continue
@@ -408,6 +471,62 @@ def check_quote_in_range(citations, fm, clone, failures):
                 f"quote-in-range: citation ⟦{path}:L{lstart}-L{lend}⟧ "
                 f"exceeds file length {count} at sha {sha[:SHA12_LEN]}"
             )
+
+
+def check_clone_identity(fm, clone, failures, env_failures):
+    """D38: when --clone is given and the clone has an origin remote, the
+    remote's normalized identity must equal the frontmatter repo's — any
+    directory with a matching commit must not validate any digest. A
+    remoteless clone (hermetic fixture) skips with a note, as does an origin
+    URL from which no identity is derivable."""
+    repo_url = fm.get("repo")
+    if not isinstance(repo_url, str):
+        return
+    try:
+        fm_identity = normalize_identity(repo_url)
+    except ValueError:
+        return  # already reported by the digest-path check
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=clone, capture_output=True, timeout=30,
+        )
+    except FileNotFoundError:
+        env_failures.append(
+            "clone-identity: git executable not found on PATH — cannot "
+            "verify the clone's identity (environment failure, D34)"
+        )
+        return
+    except subprocess.TimeoutExpired:
+        env_failures.append(
+            "clone-identity: git timed out reading the origin remote "
+            "(30s bound; environment failure, D34)"
+        )
+        return
+    if result.returncode != 0:
+        sys.stderr.write(
+            "validate-digest: NOTE: clone has no origin remote — identity "
+            "binding skipped (D38)\n"
+        )
+        return
+    origin_url = result.stdout.decode(errors="replace").strip()
+    try:
+        origin_identity = normalize_identity(origin_url)
+    except ValueError:
+        sys.stderr.write(
+            f"validate-digest: NOTE: no identity derivable from the clone's "
+            f"origin URL {origin_url!r} — identity binding skipped (D38)\n"
+        )
+        return
+    if origin_identity != fm_identity:
+        o_host, o_segs = origin_identity
+        f_host, f_segs = fm_identity
+        failures.append(
+            f"clone-identity: the clone's origin remote {origin_url!r} "
+            f"normalizes to '{o_host}/{'/'.join(o_segs)}' but the "
+            f"frontmatter repo normalizes to '{f_host}/{'/'.join(f_segs)}' "
+            "— the clone is not the digest's library (D38)"
+        )
 
 
 USAGE = "usage: validate-digest <digest.md> [--clone <path-to-clone>]\n"
@@ -443,50 +562,77 @@ def main(argv):
         sys.stderr.write(f"validate-digest: --clone path is not a directory: {clone}\n")
         return 2
 
-    schema = load_schema()
+    # The schema is the skill's own data file: unreadable or unparseable
+    # means a broken environment, not an invalid digest (D34).
+    try:
+        schema = load_schema()
+    except (OSError, yaml.YAMLError) as e:
+        sys.stderr.write(
+            f"ENVIRONMENT: cannot load digest-schema.yaml: {e}\n"
+            "validate-digest: environment failure — repair the skill "
+            "checkout and retry (D34)\n"
+        )
+        return 4
+
     failures = []
+    env_failures = []
 
-    with open(digest_path, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    # 1. Parse: frontmatter + body
+    # 1. Parse: UTF-8, then frontmatter + body. A non-UTF-8 digest is a
+    # property of the digest — INVALID, not an environment failure (D34).
+    try:
+        with open(digest_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except UnicodeDecodeError as e:
+        failures.append(f"parse: digest is not valid UTF-8: {e}")
+        report(failures, env_failures)
+        return 1
     try:
         fm_str, body = split_frontmatter(text)
     except ValueError as e:
         failures.append(f"parse: {e}")
-        report(failures)
+        report(failures, env_failures)
         return 1
     try:
         fm = yaml.safe_load(fm_str)
     except yaml.YAMLError as e:
         failures.append(f"parse: frontmatter is not valid YAML: {e}")
-        report(failures)
+        report(failures, env_failures)
         return 1
 
     # 2. Frontmatter fields
     fm = check_frontmatter(fm, schema, failures)
 
-    # 3. Filename rule
-    check_filename(digest_path, fm, failures)
+    # 3. Digest path rule
+    check_digest_path(digest_path, fm, failures)
 
     # 4. Citation grammar v1.1
     citations = check_citations(body, fm, schema, failures)
 
-    # 5. Quote-in-range (only with --clone)
+    # 5 + 6. Clone identity binding and quote-in-range (only with --clone)
     if clone is not None:
-        check_quote_in_range(citations, fm, clone, failures)
+        check_clone_identity(fm, clone, failures, env_failures)
+        check_quote_in_range(citations, fm, clone, failures, env_failures)
     else:
         sys.stderr.write(
             "validate-digest: NOTE: quote-in-range check skipped (no --clone given)\n"
         )
 
-    report(failures)
-    return 1 if failures else 0
+    report(failures, env_failures)
+    # A confirmed INVALID finding wins over an environment failure: the
+    # digest is provably bad regardless of the environment. Exit 4 only when
+    # the environment kept an otherwise-clean digest from full validation.
+    if failures:
+        return 1
+    if env_failures:
+        return 4
+    return 0
 
 
-def report(failures):
+def report(failures, env_failures):
     for failure in failures:
         sys.stderr.write(f"INVALID: {failure}\n")
+    for failure in env_failures:
+        sys.stderr.write(f"ENVIRONMENT: {failure}\n")
 
 
 if __name__ == "__main__":

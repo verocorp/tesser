@@ -1,0 +1,3 @@
+# Python dependencies for tesser's scripts, installed into ~/.tesser/venv by
+# scripts/setup (D32). scripts/validate-digest re-execs into that venv.
+pyyaml>=6.0

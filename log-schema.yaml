@@ -29,6 +29,12 @@ marker:
 lifecycle:
   events: [opened, finalized]
   join_key: id
+  # Join rule (D36): append-only means double-finalize and finalize-without-
+  # open can exist in the file; the ANALYSIS decides which line counts.
+  join_rule: first schema-valid finalized line per id wins; schema-invalid
+    finalized lines, later valid finalized lines for the same id, and
+    finalized lines with no matching opened line are anomalies, tallied
+    separately — a read-side rule only, nothing is written back
   # Walk-away (D21): a run the developer abandons mid-build legitimately has
   # no finalized line. The logger NEVER force-finalizes a record.
   walk_away: opened record stays unfinalized; never force-finalized
@@ -67,8 +73,14 @@ fields:
     type: string
     pattern: "^[0-9a-f]{40}$" # the pinned commit (D28 pin-first)
     events: [finalized]
-    presence: required when outcome is completed or completed-unverified;
-      optional otherwise (clone may never have happened)
+    # D33: a completed run by definition pinned a commit, so the logger
+    # enforces sha presence for completed (exit 2, nothing appended). A
+    # completed-unverified answer can legitimately have no sha (e.g. a
+    # docs-grade answer after a failed clone) — there, presence means a pin
+    # happened.
+    presence: required when outcome is completed (logger-enforced); optional
+      when outcome is completed-unverified, where presence means a pin
+      happened; optional otherwise (clone may never have happened)
   dependency_kind:
     type: string
     enum: [clonable-cli, clonable-library, sdk-of-hosted-service, hosted-closed, heavy-infra]
@@ -109,3 +121,12 @@ fields:
     type: string # path of the digest served, existence-validated (D14)
     events: [finalized]
     presence: required when a cached digest was served; absent otherwise
+  digest_sha256:
+    type: string
+    pattern: "^[0-9a-f]{64}$" # SHA-256 of the digest file's bytes
+    events: [finalized]
+    # D35 (amended by the 2026-06-11 outside-voice round) + D10: passive
+    # evidence for the instrument ONLY — recorded when a digest is persisted
+    # or served, never verified at runtime. v1 digest integrity is filesystem
+    # trust; the verification layer is a triggered TODO (TODOS.md).
+    presence: logged when a digest was persisted or served; absent otherwise

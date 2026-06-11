@@ -15,13 +15,16 @@ tesser is a Claude Code skill. You ask a question about an unfamiliar dependency
 
 ## Install
 
-Clone this repo into your Claude Code skills directory:
+Clone this repo into your Claude Code skills directory, then run the setup step once:
 
 ```
 git clone https://github.com/verocorp/tesser ~/.claude/skills/tesser
+~/.claude/skills/tesser/scripts/setup
 ```
 
-If you'd rather not clone, a zip of this repo unpacked to the same location works identically.
+Setup creates a private Python environment at `~/.tesser/venv` for tesser's scripts — nothing is installed into your system Python. Re-running it is a no-op until the requirements change. If you skip it, tesser still answers questions; it just can't validate digests, so cold runs won't persist them.
+
+If you'd rather not clone, a zip of this repo unpacked to the same location works identically — the setup step still applies.
 
 ## Self-update
 
@@ -31,7 +34,8 @@ At invocation, tesser runs a quiet `git pull --ff-only` in its own skill directo
 
 tesser keeps all persisted state under `~/.tesser/`:
 
-- `log.jsonl` — one record per invocation, opened at start and finalized at end: timestamp (`ts`), the resolved repo URL, the pinned SHA, your question, invocation source (`seeded` or `self`), dependency kind, outcome, the failing command and exit code when a step fails, and the path of any cached digest consulted. A run you abandon mid-build honestly keeps its opened, unfinalized record. The canonical field set and outcome semantics live in `log-schema.yaml` — that file, not this list, is the inventory.
+- `log.jsonl` — one record per invocation, opened at start and finalized at end: timestamp (`ts`), the resolved repo URL, the pinned SHA, your question, invocation source (`seeded` or `self`), dependency kind, outcome, the failing command and exit code when a step fails, and the path and SHA-256 of any cached digest consulted. A run you abandon mid-build honestly keeps its opened, unfinalized record. The canonical field set and outcome semantics live in `log-schema.yaml` — that file, not this list, is the inventory.
+- `venv/` — the private Python environment that `scripts/setup` creates
 - a first-run marker
 - `clones/` — the repos it has cloned
 - `digests/` — the markdown digests it produces
@@ -45,3 +49,5 @@ tesser clones and builds arbitrary open-source code on your machine — the same
 ## Bundled digests
 
 `digests/` ships with pre-run digests for a starter set of libraries. When your question hits one, tesser serves it — with full provenance: repo, SHA, environment, every command run with its exit code, the run's timestamp, the dependency kind, and the evidence grade its claims reach — and tells you it did. The canonical provenance inventory is the frontmatter spec in `digest-schema.yaml`.
+
+One honest caveat: tesser trusts digests as ordinary local files. It records each digest's SHA-256 in the log when it persists or serves one, but it does not verify that hash at serve time — anything that can write to `~/.tesser/digests/` can change what a digest says.

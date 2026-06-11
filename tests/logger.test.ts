@@ -213,6 +213,75 @@ describe("gate 2 — finalize outcome enum + digest-served semantics", () => {
   });
 });
 
+describe("gate — sha presence is logger-enforced for completed (D33)", () => {
+  it("finalize --outcome completed without --sha is exit 2 with zero bytes appended", () => {
+    const home = freshHome();
+    const id = openOk(home, "completed without a pin?");
+    const before = logBytes(home);
+    const res = run(home, ["finalize", "--id", id, "--outcome", "completed"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/--sha is required/);
+    expect(logBytes(home).equals(before)).toBe(true);
+  });
+
+  it("completed-unverified without --sha is accepted (no pin happened)", () => {
+    // The schema says sha presence here MEANS a pin happened — e.g. a
+    // docs-grade answer after a failed clone legitimately has no sha.
+    expect(schema.fields.sha.presence).toMatch(/pin/);
+    const home = freshHome();
+    const id = openOk(home, "docs-grade answer after failed clone");
+    const res = run(home, ["finalize", "--id", id, "--outcome", "completed-unverified"]);
+    expect(res.status, res.stderr).toBe(0);
+    const last = logLines(home).at(-1)!;
+    expect(last.outcome).toBe("completed-unverified");
+    expect(last).not.toHaveProperty("sha");
+  });
+
+  it("completed-unverified with --sha is accepted (a pin happened)", () => {
+    const home = freshHome();
+    const id = openOk(home, "pinned but a verify rung failed");
+    const res = run(home, [
+      "finalize", "--id", id, "--outcome", "completed-unverified", "--sha", VALID_SHA,
+    ]);
+    expect(res.status, res.stderr).toBe(0);
+    expect(logLines(home).at(-1)!.sha).toBe(VALID_SHA);
+  });
+});
+
+describe("gate — digest_sha256 passive evidence (D35/D10)", () => {
+  it("the field is schema-pinned and emitted verbatim on finalized lines", () => {
+    expect(Object.keys(schema.fields)).toContain("digest_sha256");
+    const home = freshHome();
+    const digest = join(home, "served-digest.md");
+    writeFileSync(digest, "# digest\n");
+    const hash = "ab".repeat(32); // 64 hex chars
+    const id = openOk(home, "digest-served with hash evidence");
+    const res = run(home, [
+      "finalize", "--id", id, "--outcome", "completed",
+      "--sha", VALID_SHA, "--digest", digest, "--digest-sha256", hash,
+    ]);
+    expect(res.status, res.stderr).toBe(0);
+    const last = logLines(home).at(-1)!;
+    expect(last.digest_sha256).toBe(hash);
+    expect(new RegExp(schema.fields.digest_sha256.pattern).test(hash)).toBe(true);
+  });
+
+  it.each([["ab".repeat(31) + "a"], ["AB".repeat(32)], ["not-a-hash"]])(
+    "malformed digest-sha256 %s is rejected with zero bytes appended",
+    (bad) => {
+      const home = freshHome();
+      const id = openOk(home, "q");
+      const before = logBytes(home);
+      const res = run(home, [
+        "finalize", "--id", id, "--outcome", "completed",
+        "--sha", VALID_SHA, "--digest-sha256", bad,
+      ]);
+      expect(res.status).not.toBe(0);
+      expect(logBytes(home).equals(before)).toBe(true);
+    },
+  );
+});
+
 describe("gate 3 — seeded/self derivation via the first-run marker", () => {
   it("first open in a fresh TESSER_HOME is seeded and creates the marker; second is self", () => {
     const home = freshHome();
@@ -300,12 +369,14 @@ describe("gate 6 — malformed-args rejection + append-only integrity", () => {
       ["finalize", "--id", uuid, "--outcome", "done"], // bad outcome
       ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--sha", "abc123"], // bad sha
       ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--sha", VALID_SHA.toUpperCase()], // uppercase sha
-      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--digest", join(home, "no-such-digest.md")], // nonexistent digest (D14)
-      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--dependency-kind", "saas"], // bad kind slug
+      ["finalize", "--id", uuid, "--outcome", "completed"], // completed without --sha (D33)
+      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--sha", VALID_SHA, "--digest", join(home, "no-such-digest.md")], // nonexistent digest (D14)
+      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--sha", VALID_SHA, "--dependency-kind", "saas"], // bad kind slug
+      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--sha", VALID_SHA, "--digest-sha256", "deadbeef"], // bad digest hash (D35)
       ["finalize", "--id", "not-a-uuid", "--outcome", OUTCOMES[0]], // bad id
       ["finalize", "--outcome", OUTCOMES[0]], // missing --id
       ["finalize", "--id", uuid], // missing --outcome
-      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--failing-command", "make", "--exit-code", "two"], // non-integer exit code
+      ["finalize", "--id", uuid, "--outcome", OUTCOMES[0], "--sha", VALID_SHA, "--failing-command", "make", "--exit-code", "two"], // non-integer exit code
     ];
     for (const args of malformed) {
       const res = run(home, args);

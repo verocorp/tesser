@@ -24,7 +24,13 @@ Usage:
   log-invocation finalize --id <uuid> --outcome <value> [--repo <url>]
       [--sha <40hex>] [--dependency-kind <slug>]
       [--failing-command <cmd> --exit-code <int>] [--digest <path>]
+      [--digest-sha256 <64hex>]
       Appends a finalized event with exactly the fields supplied.
+      --sha is REQUIRED when --outcome is completed (D33: a completed run by
+      definition pinned a commit); for completed-unverified it is optional —
+      presence means a pin happened. --digest-sha256 is the SHA-256 of a
+      digest persisted or served, passive evidence only (D35/D10): the
+      logger records it, nothing verifies it.
 
 Any malformed or invalid argument exits nonzero with a message on stderr and
 appends nothing.
@@ -49,6 +55,7 @@ DEPENDENCY_KINDS = (
     "heavy-infra",
 )
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+DIGEST_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
@@ -148,6 +155,18 @@ def cmd_finalize(args: argparse.Namespace) -> None:
         )
     if args.sha is not None and not SHA_PATTERN.match(args.sha):
         fail(f"--sha must match ^[0-9a-f]{{40}}$, got {args.sha!r}")
+    # D33: a completed run by definition pinned a commit — the logger gates
+    # it. completed-unverified legitimately has no sha (e.g. a docs-grade
+    # answer after a failed clone); there, presence means a pin happened.
+    if args.outcome == "completed" and args.sha is None:
+        fail("--sha is required when --outcome is completed (D33)")
+    if args.digest_sha256 is not None and not DIGEST_SHA256_PATTERN.match(
+        args.digest_sha256
+    ):
+        fail(
+            f"--digest-sha256 must match ^[0-9a-f]{{64}}$, "
+            f"got {args.digest_sha256!r}"
+        )
     if args.dependency_kind is not None and args.dependency_kind not in DEPENDENCY_KINDS:
         fail(
             f"--dependency-kind must be one of {', '.join(DEPENDENCY_KINDS)} "
@@ -175,6 +194,8 @@ def cmd_finalize(args: argparse.Namespace) -> None:
         record["exit_code"] = args.exit_code
     if args.digest is not None:
         record["consulted_cached_digest"] = args.digest
+    if args.digest_sha256 is not None:
+        record["digest_sha256"] = args.digest_sha256
     append_line(state_root(), record)
 
 
@@ -205,6 +226,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_fin.add_argument(
         "--digest",
         help="path of the cached digest served (logged as consulted_cached_digest)",
+    )
+    p_fin.add_argument(
+        "--digest-sha256",
+        dest="digest_sha256",
+        help="SHA-256 of a digest persisted or served (passive evidence, D35/D10)",
     )
     p_fin.set_defaults(func=cmd_finalize)
     return parser

@@ -10,26 +10,33 @@ version: 1
 
 file:
   format: markdown with YAML frontmatter
-  # D27 + D28: the filename's sha12 MUST equal sha[0:12] of the frontmatter
-  # sha (a renamed digest is invalid), and the library part is org--repo from
-  # the normalized identity below — never a bare library name (same-name
-  # different-org libraries must not collide).
-  naming: "<org>--<repo>@<sha12>.md" # sha12 = frontmatter sha[0:12], enforced
+  # D27 + D31 (amends D28): a digest lives at a host-aware path under its
+  # digests root. The trailing path's sha12 MUST equal sha[0:12] of the
+  # frontmatter sha (a renamed digest is invalid), and the directory segments
+  # are the normalized identity below — never a bare library name (same
+  # name on a different host or under a different namespace must not
+  # collide, and GitLab-style subgroups are preserved, not truncated).
+  naming: "<host>/<org-path>/<repo>@<sha12>.md" # path under the digests root
   locations:
-    bundled: digests/ # ships with the skill, curated keepers
+    bundled: digests/ # ships with the skill, curated keepers (validated recursively)
     local: ~/.tesser/digests/ # persisted by cold runs after validation (D12)
 
-# Library identity (D28). Pin-first reuse and digest naming both key on the
-# normalized identity host/org/repo, derived from the clone URL:
+# Library identity (D31, amends D28). Pin-first reuse and digest paths both
+# key on the normalized identity host + full namespace path, derived from the
+# clone URL:
 #   - scheme/transport equivalence: https://host/org/repo, ssh://git@host/org/repo,
 #     and scp-style git@host:org/repo all normalize to the same identity
-#   - trailing .git stripped; host, org, and repo lowercased
-#   - file:// (fixtures): host is empty; org = parent directory name,
-#     repo = repository directory name (.git stripped)
+#   - the FULL namespace path is kept: gitlab.com/group/subgroup/repo keeps
+#     all three leading segments (org-path = group/subgroup), never just the
+#     last two
+#   - trailing .git stripped; host and every path segment lowercased
+#   - file:// (fixtures): the host segment is the literal `file`;
+#     org-path = parent directory name, repo = repository directory name
+#     (.git stripped)
 # Forks, aliases, redirects, and monorepo subpaths are explicitly OUT of v1.
 identity:
-  key: host/org/repo
-  digest_name_part: "<org>--<repo>"
+  key: host + full namespace path (org-path segments + repo)
+  digest_path: "<host>/<org-path>/<repo>@<sha12>.md"
 
 frontmatter:
   required:
@@ -85,8 +92,13 @@ body:
     # alphanumeric continuation — invalidates the WHOLE token instead of
     # partially matching as a bare citation. Line numbers are 1-based with no
     # leading zeros, so L0 ranges fail at the pattern.
-    token_pattern: "⟦[^⟧:]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@)"
+    # Path charset (D37, strictness-only v1.1 amendment): the path part also
+    # excludes ⟦ and newlines, so a stray ⟦ can never merge into the next
+    # citation's path and pass structural validation as one token.
+    token_pattern: "⟦[^⟧⟦:\\n\\r]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@)"
     range_rule: "1 <= Lstart <= Lend; a reversed range (e.g. L90-L10) is invalid"
+    path_rule: "cited paths are normal repo-relative paths: no leading /, no
+      '..' or '.' segments, no empty segments (D37)"
     # D24 serve-path rewrite: when digest content is delivered as an answer,
     # bare in-digest citations are rewritten to the full form by appending
     # @<frontmatter sha12> at egress. A delivered answer never contains a
@@ -102,5 +114,8 @@ body:
     - "token-totality: every occurrence of ⟦ in the body must begin a span
       that fully matches token_pattern; a malformed citation token is a
       validation failure, not prose (D24)"
+    - "path-normality: every cited path must satisfy path_rule — traversal
+      (../), absolute paths, and '.' or empty segments are validation
+      failures at the grammar stage, before any git resolution (D37)"
     - claims below the digest's truth_grade are individually labeled with
       their own grade

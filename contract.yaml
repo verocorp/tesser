@@ -52,20 +52,23 @@ clauses:
 
   - id: digest-consult
     delta: true # value-over-baseline delta (iv)
-    source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D24"]
-    # NOTE: the drift-flag's check semantics (async-on-background-clone vs
-    # sync ls-remote vs drop) are D22 — UNRESOLVED, owner Chris, deadline
-    # before T4. The flag obligation below stands; its mechanics await D22.
+    source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D22", "D24", "D34", "D35"]
     statement: >-
       Before cold work, consult bundled digests (digests/ in the skill repo)
       and local digests (~/.tesser/digests/). When a digest for the library
       is used: serve it with full provenance, rewrite bare in-digest
       citations to the full ⟦path:Lstart-Lend⟧@sha12 form at egress (D24 —
-      a delivered answer never contains a bare citation), flag any SHA
-      drift between the digest and the repo's current state, and log the
-      named digest path (consulted_cached_digest). Cold runs persist a new
-      digest to ~/.tesser/digests/ only after it passes
-      scripts/validate-digest.
+      a delivered answer never contains a bare citation), and log the named
+      digest path (consulted_cached_digest) with its digest_sha256 — passive
+      evidence only, never verified at serve time (D35). Drift handling is
+      async (D22): the digest is served immediately, labeled drift-unchecked;
+      the background clone computes any SHA drift between the digest and the
+      repo's current state; a superseding follow-up delivers the drift
+      verdict, per provisional-first mechanics. Offline stays honestly
+      drift-unchecked. Cold runs persist a new digest to ~/.tesser/digests/
+      only per the validator's exit code (D34): 0 persist (logging
+      digest_sha256), 1 discard, 4 keep the artifacts and retry validation —
+      an environment failure is not a property of the digest.
 
   - id: invocation-log
     delta: true # value-over-baseline delta (v)
@@ -84,15 +87,16 @@ clauses:
 
   - id: idempotent-reuse
     delta: false
-    source: ["D11", "D28"]
+    source: ["D11", "D28", "D31"]
     statement: >-
       Pin-first reuse: the SHA is pinned at first clone, and every later
       invocation for the same library reuses the existing clone, build
       artifacts, and digest at that pinned SHA. tesser never auto-chases
       upstream. Re-pin and redo only on explicit developer request or on
       missing/corrupt local state. Library identity is the normalized
-      host/org/repo of the clone URL (digest-schema.yaml identity rule);
-      equivalent URL spellings are one library, one clone, one digest.
+      host + full namespace path of the clone URL (digest-schema.yaml
+      identity rule, D31); equivalent URL spellings are one library, one
+      clone, one digest.
 
   - id: provisional-first
     delta: false
