@@ -19,7 +19,8 @@ All persisted state lives under `~/.tesser/` — never inside this skill's direc
   log.jsonl, first-run                      the instrument — local-only, never leaves the machine
   venv/                                     created by scripts/setup (validator dependencies)
   clones/<host>/<org-path>/<repo>/          work tree at the pinned SHA
-  builds/<host>/<org-path>/<repo>@<sha12>/  build.log, state (building|built|failed), staged digest
+  builds/<host>/<org-path>/<repo>@<sha12>/  build.log, state (building|built|failed),
+                                            digest/<host>/<org-path>/<repo>@<sha12>.md (staged)
   digests/<host>/<org-path>/<repo>@<sha12>.md   validated digests only
 ```
 
@@ -39,14 +40,14 @@ Keep `ID` for the finalize at the end. The log is the experiment's primary instr
 
 ## 3. Consult digests before cold work (contract:digest-consult)
 
-Resolve the dependency to a canonical clone URL first — a package name resolves through its registry (npm, crates.io, PyPI, pkg.go.dev…) to the source repo; the resolved URL is what gets logged, not the input. Then check for an existing digest at the identity path, bundled first: `digests/<host>/<org-path>/<repo>@*.md` in this skill repo, then `~/.tesser/digests/`.
+Resolve the dependency to a canonical clone URL first — a package name resolves through its registry (npm, crates.io, PyPI, pkg.go.dev…) to the source repo; the resolved URL is what gets logged, not the input. Then check for an existing digest at the identity path: local `~/.tesser/digests/<host>/<org-path>/<repo>@*.md` first (a digest from a real run on this machine), then bundled `digests/<host>/<org-path>/<repo>@*.md` in this skill repo. If several shas match one identity, prefer the one whose pinned clone already exists under `~/.tesser/clones/`, else the most recent `ts`.
 
 On a hit:
 
 1. **Serve the answer now**, with full provenance from the frontmatter — repo, sha, env, commands with exit codes, ts, dependency_kind, truth_grade — and label it **drift-unchecked**.
 2. At egress, rewrite every bare in-digest citation to the full form by appending `@<frontmatter sha12>`.
-3. In the same turn, launch a background clone/fetch (`run_in_background`) to check drift: compare the digest's sha against the repo's current head. When the notification lands, deliver the verdict as an explicit follow-up — "no drift" or "the repo has moved N commits past this digest" — the served answer stands at its grade either way. Offline? Say it stays drift-unchecked, honestly.
-4. Finalize (§9) with `--outcome completed --digest <path> --digest-sha256 <sha256 of the file>` plus the digest's sha and kind.
+3. In the same turn, launch the drift check in the background (`run_in_background`): an `ls-remote` of the resolved URL is enough to compare the repo's current head against the digest's sha — no working tree needed. (If you do clone for it, check out and pin the digest's sha, not the remote head: the digest's sha is the pin §5 reuses; a clone left at the remote head would diverge from the served citations.) When the notification lands, deliver the verdict as an explicit follow-up — "no drift" or "the repo has moved N commits past this digest" — the served answer stands at its grade either way. Offline? Say it stays drift-unchecked, honestly.
+4. Finalize (§9) for a digest-served run with `--outcome completed --digest <served-path> --digest-sha256 <sha256 of the file>` plus the digest's sha and kind. `--digest` is what marks the run a cache hit (it sets `consulted_cached_digest`) — use it ONLY here, never for a digest this run just persisted (§9).
 
 Serve follow-ups from the digest and the clone; any claim neither can ground goes through the cold path below.
 
@@ -91,16 +92,17 @@ The build-completion notification is a system message, **not user input** — ne
 
 ## 9. Persist the digest, finalize the log
 
-After a cold run that produced citable knowledge, write a digest — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside a digest). Stage it under `builds/.../digest/` at its full identity path, then validate:
+After a cold run that produced citable knowledge, write a digest — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside a digest). Stage it at its full identity path inside the build dir — `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md` — so the validator's path check sees the same tail it will have once moved. Then validate:
 
 ```
 scripts/validate-digest <staged-digest.md> --clone <clone-dir>
 ```
 
-- **0** — move it to `~/.tesser/digests/<host>/<org-path>/<repo>@<sha12>.md`; log its sha256.
+- **0** — move it to `~/.tesser/digests/<host>/<org-path>/<repo>@<sha12>.md`; record its sha256 (see finalize below).
 - **1** — invalid: fix it or discard it. An invalid digest never lands in `digests/`.
-- **3** — `scripts/setup` hasn't been run: tell the developer (one line), serve answers normally, persist nothing this run.
-- **4** — environment failure (git missing, timeout): keep the staged digest and retry validation later; it is not served as validated until it passes.
+- **2** — usage error (your command is malformed, e.g. a mistyped path): fix the command and re-run. The digest's status is unknown — never discard it on a 2.
+- **3** — `scripts/setup` hasn't been run. Setup is an install-time step (run once by the developer per the README), not something tesser self-runs — so tell the developer in one line, serve answers normally, and persist nothing this run.
+- **4** — environment failure (git missing, timeout, or the clone lacks the pinned commit): keep the staged digest and retry validation later against a clone that has the commit; it is not served as validated until it passes.
 
 Then finalize — every invocation that reaches an end state closes its record (contract:invocation-log):
 
@@ -110,7 +112,7 @@ scripts/log-invocation finalize --id "$ID" --outcome <outcome> --repo <resolved-
   [--digest <served-path> --digest-sha256 <hex64>]
 ```
 
-- `completed` — answer delivered at the kind's ceiling (digest-served counts, with `--digest` set). `--sha` is required: a completed run by definition pinned a commit.
+- `completed` — answer delivered at the kind's ceiling. `--sha` is required: a completed run by definition pinned a commit. For a **digest-served** run (§3), pass `--digest <served-path> --digest-sha256 <hex64>` — that pair is what marks the run a cache hit. For a **cold run that just persisted** a digest, pass `--digest-sha256 <hex64>` ALONE (the hash of the file you persisted) and NOT `--digest`: a freshly minted digest was not consulted from cache, and logging it as `consulted_cached_digest` would corrupt the second-invocation metric.
 - `completed-unverified` — answer delivered below the achievable ceiling (a build or verify rung failed, or the developer's flow ended before the upgrade). Pass `--sha` only if a pin happened.
 - `install-failure` — no answer at any grade: resolve/clone/setup failed. Always include `--failing-command` and `--exit-code`.
 - `aborted` — the developer explicitly cancelled.

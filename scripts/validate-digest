@@ -82,8 +82,17 @@ SHA12_LEN = 12
 
 # Hard bound on every git subprocess. TESSER_VALIDATE_GIT_TIMEOUT overrides
 # it ONLY so the timeout->exit-4 gate can run in test time; real invocations
-# never set it (same posture as TESSER_HOME).
-GIT_TIMEOUT = float(os.environ.get("TESSER_VALIDATE_GIT_TIMEOUT") or 30)
+# never set it (same posture as TESSER_HOME). A malformed override falls back
+# to the default rather than crashing at import.
+try:
+    GIT_TIMEOUT = float(os.environ.get("TESSER_VALIDATE_GIT_TIMEOUT") or 30)
+except ValueError:
+    GIT_TIMEOUT = 30.0
+
+# Legitimate digest frontmatter is a few hundred bytes; a multi-KiB block is
+# either malformed or a YAML alias-bomb (safe_load still expands aliases).
+# Cap it before parsing so a crafted digest can't OOM the validator.
+MAX_FRONTMATTER_BYTES = 64 * 1024
 
 CITATION_EXTRACT = re.compile(
     "⟦([^⟧:]+):L([0-9]+)-L([0-9]+)⟧(?:@([0-9a-f]+))?"
@@ -413,6 +422,16 @@ def check_citations(body, fm, schema, failures):
                 "normal repo-relative path (no leading /, no '..' or '.' "
                 "segments, no empty segments — path-normality, D37)"
             )
+        # The schema charset excludes ⟦ : newlines, but a control char (NUL,
+        # tab) would otherwise pass the grammar and then crash the git
+        # subprocess (embedded-null ValueError). Reject it here as a clean
+        # INVALID rather than a traceback.
+        elif any(ord(ch) < 0x20 for ch in path):
+            token_ok = False
+            failures.append(
+                f"citation: path at body line {line_no} contains a control "
+                "character (path-normality, D37)"
+            )
         if token_ok:
             citations.append((path, lstart, lend))
         idx = m.end()
@@ -427,15 +446,47 @@ def check_quote_in_range(citations, fm, clone, failures, env_failures):
     sha = fm.get("sha")
     if not isinstance(sha, str):
         return
+    # The clone not containing the digest's commit (a --depth 1 clone at a
+    # newer head, a gc'd or drift-refreshed clone) is a property of the
+    # CLONE, not the digest (D34): without this guard every citation would
+    # read as "not a file at sha" → exit 1 → the playbook discards a valid
+    # digest. Resolve the commit first; absence is an environment failure.
+    try:
+        head_check = subprocess.run(
+            ["git", "--no-replace-objects", "cat-file", "-e", f"{sha}^{{commit}}"],
+            cwd=clone, capture_output=True, timeout=GIT_TIMEOUT,
+        )
+    except FileNotFoundError:
+        env_failures.append(
+            "quote-in-range: git executable not found on PATH — cannot "
+            "verify citations (environment failure, D34)"
+        )
+        return
+    except subprocess.TimeoutExpired:
+        env_failures.append(
+            f"quote-in-range: git timed out resolving sha {sha[:SHA12_LEN]} "
+            f"({GIT_TIMEOUT:g}s bound; environment failure, D34)"
+        )
+        return
+    if head_check.returncode != 0:
+        env_failures.append(
+            f"quote-in-range: the clone does not contain commit "
+            f"{sha[:SHA12_LEN]} (shallow or drifted clone; environment "
+            "failure, D34 — keep the digest and retry against a clone that "
+            "has the pinned commit)"
+        )
+        return
     line_counts = {}
     for path in sorted({c[0] for c in citations}):
         # `git cat-file blob` (not `git show`): show exits 0 on a TREE and
         # prints a directory listing, so a citation to a directory would
         # "validate" against the listing's length. cat-file blob fails on
-        # anything that is not a real file's content.
+        # anything that is not a real file's content. --no-replace-objects:
+        # a malicious clone can plant a refs/replace entry to make citations
+        # resolve against a different tree while naming the victim sha.
         try:
             result = subprocess.run(
-                ["git", "cat-file", "blob", f"{sha}:{path}"],
+                ["git", "--no-replace-objects", "cat-file", "blob", f"{sha}:{path}"],
                 cwd=clone, capture_output=True, timeout=GIT_TIMEOUT,
             )
         except FileNotFoundError:
@@ -449,6 +500,16 @@ def check_quote_in_range(citations, fm, clone, failures, env_failures):
                 f"quote-in-range: git timed out reading '{path}' at sha "
                 f"{sha[:SHA12_LEN]} ({GIT_TIMEOUT:g}s bound; environment "
                 "failure, D34)"
+            )
+            line_counts[path] = None
+            continue
+        except ValueError:
+            # Belt-and-suspenders: an embedded NUL in the path reaches argv
+            # as a ValueError. The grammar stage already rejects control
+            # chars; treat any straggler as INVALID, never a traceback.
+            failures.append(
+                f"quote-in-range: cited path '{path!r}' is not a usable git "
+                "path (embedded control character)"
             )
             line_counts[path] = None
             continue
@@ -494,7 +555,7 @@ def check_clone_identity(fm, clone, failures, env_failures):
         return  # already reported by the digest-path check
     try:
         result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
+            ["git", "--no-replace-objects", "remote", "get-url", "origin"],
             cwd=clone, capture_output=True, timeout=GIT_TIMEOUT,
         )
     except FileNotFoundError:
@@ -583,10 +644,12 @@ def main(argv):
     failures = []
     env_failures = []
 
-    # 1. Parse: UTF-8, then frontmatter + body. A non-UTF-8 digest is a
-    # property of the digest — INVALID, not an environment failure (D34).
+    # 1. Parse: UTF-8 (utf-8-sig tolerates a BOM so a BOM-emitting editor's
+    # digest fails on its real defects, not a misleading "no --- delimiter"),
+    # then frontmatter + body. A non-UTF-8 digest is a property of the digest
+    # — INVALID, not an environment failure (D34).
     try:
-        with open(digest_path, "r", encoding="utf-8") as f:
+        with open(digest_path, "r", encoding="utf-8-sig") as f:
             text = f.read()
     except UnicodeDecodeError as e:
         failures.append(f"parse: digest is not valid UTF-8: {e}")
@@ -596,6 +659,13 @@ def main(argv):
         fm_str, body = split_frontmatter(text)
     except ValueError as e:
         failures.append(f"parse: {e}")
+        report(failures, env_failures)
+        return 1
+    if len(fm_str.encode("utf-8")) > MAX_FRONTMATTER_BYTES:
+        failures.append(
+            f"parse: frontmatter exceeds {MAX_FRONTMATTER_BYTES} bytes — "
+            "malformed or an alias-bomb; rejected before parsing"
+        )
         report(failures, env_failures)
         return 1
     try:
@@ -620,7 +690,8 @@ def main(argv):
         check_quote_in_range(citations, fm, clone, failures, env_failures)
     else:
         sys.stderr.write(
-            "validate-digest: NOTE: quote-in-range check skipped (no --clone given)\n"
+            "validate-digest: NOTE: clone-identity and quote-in-range checks "
+            "skipped (no --clone given)\n"
         )
 
     report(failures, env_failures)

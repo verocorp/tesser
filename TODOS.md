@@ -11,6 +11,15 @@ Deferred work with context. Items land here only via a review decision; each car
 - **Context:** Design sketch settled in the 2026-06-11 review. D37's charset tightening applies under either grammar. Add an agent-join eval case to T7 (can the consuming agent reliably connect ⟦n⟧ to its entry? hunch: yes — prove it).
 - **Depends on / blocked by:** **Trigger = the T9 taste gate**: the maintainer reads every corpus digest there; if they read noisy, that is the demand evidence. Do not build before that verdict.
 
+## Validator robustness hardening against hostile clones/digests (deferred from Phase-3 close review)
+
+- **What:** Two build-ahead robustness items the 2026-06-11 /gstack-review surfaced and Phase 3 deliberately left: (a) `git cat-file blob` in quote-in-range buffers the whole blob into memory with only a time bound — a digest citing a multi-GB file in an untrusted clone can OOM the validator; cap it via `git cat-file -s` size check or a streamed byte ceiling. (b) `scripts/validate-digest` re-execs into `~/.tesser/venv/bin/python3` with no integrity check; since tesser runs untrusted build commands that can write under `~/.tesser/`, a malicious build could plant a binary that every later validator run execs (same-user persistence). Refuse to exec a venv whose layout/`pyvenv.cfg` tesser didn't write.
+- **Why:** Both are real, but both live inside v1's accepted untrusted-code posture (design-doc Constraints: tesser adds no confinement of its own; it does nothing the host agent couldn't already do). The OOM needs a crafted digest; the re-exec needs an already-compromised build. Neither blocks the demand experiment.
+- **Pros:** Closes a DoS vector and a persistence vector for the one tool whose entire job is operating on untrusted code.
+- **Cons:** Build-ahead per the design-doc "no efficiency/safety layer before demand" constraint; the venv-integrity check fights same-user tampering, which is only ever a speed bump.
+- **Context:** Findings 1+2 of the Claude adversarial pass + the Codex pass, 2026-06-11 close review. The control-char-crash and replace-ref and clone-lacks-commit findings from the same review were FIXED in the close (not deferred).
+- **Depends on / blocked by:** Trigger — OS-level sandboxing arriving with the hosted tier, or the first hostile-digest/clone observed in the wild.
+
 ## Digest integrity verification (narrowed by D10/D35)
 
 - **What:** Runtime verification of the `digest_sha256` field that D10 already records at persist/serve time — serve path checks hash before trusting, mismatch = serve-with-warning; possibly signing for shared/published digests.

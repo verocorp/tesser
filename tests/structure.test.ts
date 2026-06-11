@@ -9,23 +9,19 @@
 // drift in the schemas themselves.
 //
 // ============================================================================
-// SELF-ARMING STUB GATES — read this before "fixing" a skip
+// SELF-ARMING STUB GATES — the stub is gone; the guard remains
 // ============================================================================
-// SKILL.md is a deliberate STUB until T4 lands (its frontmatter description
-// literally begins with "STUB"). Four of the five Type-B gates assert content
-// of the real T4 playbook (clause anchors, logger call sites, the
-// verify-fallback ladder, self-update wording), so they CANNOT pass against
-// the stub. They are not conditional-forever: stubness is detected by the
-// literal marker `STUB` in the SKILL.md frontmatter description, and the
-// gates use vitest's `describe.skipIf(SKILL_IS_STUB)` so that:
+// SKILL.md WAS a deliberate STUB until T4 landed (its frontmatter description
+// began with "STUB"). T4 (commit e9c48d4) replaced it with the real playbook,
+// so SKILL_IS_STUB is now false and these five Type-B gates are armed and
+// asserting real content (clause anchors, logger call sites, the verify-
+// fallback ladder, self-update wording). The skipIf machinery is KEPT, not
+// removed: it is the regression guard against re-stubbing — if a future edit
+// ever marks the description STUB again, the stub-marker consistency meta-gate
+// (section C) fails loudly rather than letting the content gates silently skip.
 //
-//   - while the stub is in place, they SKIP with a loud reason in the title:
-//     "SKILL.md is the T4 stub — this gate arms automatically when T4 lands"
-//   - the moment T4 replaces the stub (removing the STUB marker from the
-//     description), the gates ARM with ZERO test edits and start asserting.
-//
-// The byte-budget gate (gate 4) runs unconditionally — the stub trivially
-// passes; the gate is about T4 not blowing the budget.
+// The byte-budget gate (gate 4) runs unconditionally — it is about the playbook
+// not blowing the budget pinned in contract.yaml.
 // ============================================================================
 
 import { describe, it, expect } from "vitest";

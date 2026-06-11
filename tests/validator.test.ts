@@ -113,6 +113,21 @@ function makeFixtureRepo(orgName: string, repoName: string) {
   return { dir, sha, git };
 }
 
+// A bin dir on a stripped PATH carrying a real python3 (so the validator's
+// shebang resolves) plus whatever git shim the caller drops in. Returns the
+// dir; the caller writes a `git` script into it (absent git => not-found).
+function makeShimBin(name: string): string {
+  const realPython = execFileSync("python3", [
+    "-c",
+    "import sys; print(sys.executable)",
+  ], { encoding: "utf8" }).trim();
+  const binDir = path.join(tmpRoot, name);
+  fs.mkdirSync(binDir, { recursive: true });
+  const linked = path.join(binDir, "python3");
+  if (!fs.existsSync(linked)) fs.symlinkSync(realPython, linked);
+  return binDir;
+}
+
 beforeAll(() => {
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tesser-validator-"));
   hermeticHome = fs.mkdtempSync(path.join(os.tmpdir(), "tesser-home-"));
@@ -172,7 +187,7 @@ describe("gate 2: known-good digest, with quote-in-range", () => {
   it("committed good fixture validates structurally (no --clone)", () => {
     const { status, stderr } = runValidator(goodFixture);
     expect(status, stderr).toBe(0);
-    expect(stderr).toMatch(/quote-in-range check skipped/);
+    expect(stderr).toMatch(/clone-identity and quote-in-range checks skipped/);
   });
 
   it("good digest passes quote-in-range against the fixture clone", () => {
@@ -269,6 +284,20 @@ describe("clone identity binding (D38)", () => {
     expect(status, stderr).toBe(0);
     expect(stderr).toMatch(/no origin remote.*identity binding skipped/);
   });
+
+  it("origin URL with no derivable identity skips the binding with a note and stays valid", () => {
+    const fixture = makeFixtureRepo("d38org", "d38underivable");
+    fixture.git("remote", "add", "origin", "not-a-url");
+    const digest = writeDigest({
+      repo: `file://${fixture.dir}`,
+      sha: fixture.sha,
+      relPath: `file/d38org/d38underivable@${fixture.sha.slice(0, 12)}.md`,
+      body: "\nA claim ⟦src/lib.py:L1-L5⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, fixture.dir);
+    expect(status, stderr).toBe(0);
+    expect(stderr).toMatch(/no identity derivable.*identity binding skipped/);
+  });
 });
 
 // Usage and parse error paths: the exit-code contract beyond 0/1.
@@ -316,6 +345,28 @@ describe("usage + parse error paths", () => {
     expect(status).toBe(1);
     expect(stderr).toMatch(/not valid UTF-8/);
   });
+
+  it("a BOM-prefixed digest validates (utf-8-sig), not a misleading delimiter error", () => {
+    const digest = writeDigest({});
+    const text = fs.readFileSync(digest, "utf8");
+    fs.writeFileSync(digest, "﻿" + text); // editor-emitted BOM
+    const { status, stderr } = runValidator(digest);
+    expect(status, stderr).toBe(0);
+  });
+
+  it("a frontmatter over the size cap is INVALID before parsing (alias-bomb guard)", () => {
+    const digest = writeDigest({});
+    const text = fs.readFileSync(digest, "utf8");
+    // Inject a giant comment line inside the frontmatter block.
+    const bloated = text.replace(
+      /^---\n/,
+      "---\n# " + "x".repeat(70 * 1024) + "\n",
+    );
+    fs.writeFileSync(digest, bloated);
+    const { status, stderr } = runValidator(digest);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/frontmatter exceeds/);
+  });
 });
 
 // Environment failures (D34): exit 4, distinct from invalid — a transient
@@ -324,15 +375,7 @@ describe("environment failures exit 4 (D34)", () => {
   it("git missing from PATH with --clone is exit 4, not invalid", () => {
     // A PATH with python3 but no git: the shebang still resolves, the git
     // subprocess does not.
-    const realPython = execFileSync("python3", [
-      "-c",
-      "import sys; print(sys.executable)",
-    ], { encoding: "utf8" }).trim();
-    const binDir = path.join(tmpRoot, "gitless-bin");
-    fs.mkdirSync(binDir, { recursive: true });
-    const linked = path.join(binDir, "python3");
-    if (!fs.existsSync(linked)) fs.symlinkSync(realPython, linked);
-
+    const binDir = makeShimBin("gitless-bin");
     const digest = writeDigest({});
     const cloneStandIn = path.dirname(digest); // any directory: git never runs
     const { status, stderr } = runValidator(digest, cloneStandIn, {
@@ -347,19 +390,11 @@ describe("environment failures exit 4 (D34)", () => {
     // PATH carries python3 plus a git that hangs past the (test-shrunk)
     // bound. TESSER_VALIDATE_GIT_TIMEOUT is the tests-only override, same
     // posture as TESSER_HOME.
-    const realPython = execFileSync("python3", [
-      "-c",
-      "import sys; print(sys.executable)",
-    ], { encoding: "utf8" }).trim();
-    const binDir = path.join(tmpRoot, "hanging-git-bin");
-    fs.mkdirSync(binDir, { recursive: true });
-    const linked = path.join(binDir, "python3");
-    if (!fs.existsSync(linked)) fs.symlinkSync(realPython, linked);
+    const binDir = makeShimBin("hanging-git-bin");
     // Absolute /bin/sleep: the stripped PATH has no coreutils.
     fs.writeFileSync(path.join(binDir, "git"), "#!/bin/sh\n/bin/sleep 5\n", {
       mode: 0o755,
     });
-
     const digest = writeDigest({});
     const { status, stderr } = runValidator(digest, path.dirname(digest), {
       PATH: binDir,
@@ -368,6 +403,41 @@ describe("environment failures exit 4 (D34)", () => {
     expect(status, stderr).toBe(4);
     expect(stderr).toMatch(/ENVIRONMENT/);
     expect(stderr).toMatch(/timed out/);
+  });
+
+  it("a clone that lacks the digest's commit is exit 4, not invalid (D34)", () => {
+    // The digest is valid; the clone (a real git repo) simply does not
+    // contain the pinned commit — a property of the clone, not the digest.
+    // Without the sha-resolution guard every citation would read INVALID and
+    // the playbook would discard a good digest.
+    const fixture = makeFixtureRepo("d34org", "d34missingcommit");
+    const absentSha = "0123456789abcdef0123456789abcdef01234567";
+    const digest = writeDigest({
+      repo: `file://${fixture.dir}`,
+      sha: absentSha,
+      relPath: `file/d34org/d34missingcommit@${absentSha.slice(0, 12)}.md`,
+      body: "\nA claim ⟦src/lib.py:L1-L5⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, fixture.dir);
+    expect(status, stderr).toBe(4);
+    expect(stderr).toMatch(/ENVIRONMENT/);
+    expect(stderr).toMatch(/does not contain commit/);
+  });
+
+  it("a confirmed INVALID finding wins over an environment failure: exit 1, not 4", () => {
+    // Both lists populate at once: a grammar-invalid citation (reversed
+    // range) is provably bad, while git is missing from PATH. INVALID must
+    // win — the digest is bad regardless of the environment.
+    const binDir = makeShimBin("precedence-bin");
+    const digest = writeDigest({
+      body: "\nBad range ⟦src/widget.py:L90-L10⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, path.dirname(digest), {
+      PATH: binDir,
+    });
+    expect(status, stderr).toBe(1);
+    expect(stderr).toMatch(/INVALID:/);
+    expect(stderr).toMatch(/ENVIRONMENT:/);
   });
 
   it("unreadable digest-schema.yaml is exit 4 (broken skill checkout)", () => {
@@ -507,6 +577,10 @@ describe("gate 4: grammar v1.1 negatives", () => {
     ["../ traversal", "⟦../../etc/passwd:L1-L2⟧"],
     ["absolute path", "⟦/etc/passwd:L1-L2⟧"],
     ["'.' segment", "⟦src/./widget.py:L1-L5⟧"],
+    // A control char (NUL) passes the schema charset but must be a clean
+    // INVALID, never an embedded-null crash in the git subprocess.
+    ["NUL in path", "⟦src/wid\x00get.py:L1-L5⟧"],
+    ["tab in path", "⟦src/wid\tget.py:L1-L5⟧"],
   ];
 
   it("the schema token_pattern is pinned at grammar version 1.1", () => {

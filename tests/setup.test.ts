@@ -96,4 +96,18 @@ describe("scripts/setup (D32)", () => {
     // … and the stamp is back to the true hash.
     expect(fs.readFileSync(stampPath(), "utf8").trim()).toBe(reqHash());
   });
+
+  it("a failed pip install exits 1 and leaves the venv UNSTAMPED so the next run retries", () => {
+    // The load-bearing guarantee: the stamp is written only after a
+    // successful install. A regression that stamps despite failure would
+    // turn every later setup into a no-op against a broken venv.
+    const corrupt = "0".repeat(64);
+    fs.writeFileSync(stampPath(), corrupt + "\n");
+    fs.writeFileSync(pipPath(), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const res = runSetup();
+    expect(res.status).toBe(1);
+    expect(res.stderr).toMatch(/pip install failed/);
+    // Stamp NOT advanced to the true hash — the next run will retry.
+    expect(fs.readFileSync(stampPath(), "utf8").trim()).toBe(corrupt);
+  });
 });
