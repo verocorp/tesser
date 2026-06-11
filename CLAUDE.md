@@ -12,8 +12,10 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 |------|------|--------|
 | T1 | Repo scaffold | done, pushed (53682ed) |
 | T2 | Specs: contract.yaml + digest-schema.yaml | done, pushed (0fa8bc8) |
-| T3 | scripts/log-invocation + logger tests | next |
-| T8 | scripts/validate-digest | next (pairs with T3) |
+| T10 | Spec repair: 2026-06-10 eng-review decisions D21–D30 (log-schema.yaml, grammar v1.1, pin-first, kind slugs, clause 8) | next — blocks T3/T8/T5; main-loop authored (taste-bearing) |
+| T11 | Spike: background-build→upgrade-in-place flow (D19 mechanics) in a throwaway skill | next — parallel with T10; informs T4 + clause-7 wording |
+| T3 | scripts/log-invocation + logger tests | after T10 (pins log-schema.yaml) |
+| T8 | scripts/validate-digest | after T10 (pins grammar v1.1); pairs with T3 |
 | T4 | SKILL.md playbook | pending |
 | T5 | 13 deterministic gate tests | pending |
 | T6 | E2E fixtures + suite | pending |
@@ -21,6 +23,12 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T9 | Digest corpus seed | pending (supervised) |
 
 Phase 1 (T1+T2) closed 2026-06-10: deterministic gates n/a (no tests exist yet), adversarial contract audit passed (a1083d2), code review run at high effort over the full phase diff (10 spec-level findings reported to the maintainer; spec files unchanged pending contract decisions), pushed.
+
+Phase 2 plan eng-reviewed 2026-06-10: findings resolved into contract decisions D21–D30 (T10 carries the spec edits). **D22 (digest SHA-drift semantics on serve) is UNRESOLVED — must resolve before T4 (Phase 3); blocks the SHA-drift e2e only, not T3/T8/T5.** Deterministic gate count amended 13 → 19.
+
+## Decision namespaces
+
+Bare `Dn` in spec files and build artifacts = the canonical design/test-plan decision list (D1–D20 in the design-doc addendum; new contract decisions continue at D21+). Repo-process decisions use a `Pn` prefix going forward. Commit messages before 2026-06-10 ("D1 = full ladder", "D2=A", "D3" routing split) predate this convention and refer to the process list, not the canonical one.
 
 ## Orchestration rules
 
