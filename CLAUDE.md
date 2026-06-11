@@ -16,9 +16,9 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T11 | Spike: background-build→upgrade-in-place flow (D19 mechanics) in a throwaway skill | done (95277d1); clause 7 corrected — "upgrade in place" = superseding follow-up + ~/.tesser/ recovery; report in verocorp-tesser slug |
 | T3 | scripts/log-invocation + logger tests | done (32bfd90; hardened 29b66f2) |
 | T8 | scripts/validate-digest | done (594602a; hardened 29b66f2) |
-| T4 | SKILL.md playbook | next after T12 — **D22 RESOLVED 2026-06-11 (async drift)**; read the T11 spike report's Seeds-for-T4 first; removing the STUB marker self-arms the 17 Type-B gates |
-| T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2) — B-gates self-arm when T4 lands |
-| T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | next — main-loop authored (taste-bearing specs); blocks T9 (layout) and precedes T4 |
+| T4 | SKILL.md playbook | next — **D22 RESOLVED 2026-06-11 (async drift)**; read the T11 spike report's Seeds-for-T4 first; removing the STUB marker self-arms the 17 Type-B gates |
+| T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2; +30 T12 gates 322c33f) — B-gates self-arm when T4 lands |
+| T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | done (322c33f) — 82 active gates green; T9 layout unblocked |
 | T6 | E2E fixtures + suite | pending |
 | T7 | Eval stub (RUN_EVAL-gated) | pending |
 | T9 | Digest corpus seed | pending (supervised) |
