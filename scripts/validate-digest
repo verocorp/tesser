@@ -152,7 +152,10 @@ def check_field(field, value, spec, failures):
             )
             return
         pattern = spec.get("pattern")
-        if pattern and not re.match(pattern, value):
+        # fullmatch: re.match + '$' would still accept a trailing newline
+        # (e.g. a block-scalar sha), which would then poison the git show
+        # argument and filename normalization downstream.
+        if pattern and not re.fullmatch(pattern, value):
             failures.append(
                 f"frontmatter: '{field}' value {value!r} does not match "
                 f"schema pattern {pattern!r}"
@@ -327,18 +330,23 @@ def check_citations(body, fm, schema, failures):
             ext.group(1), int(ext.group(2)), int(ext.group(3)), ext.group(4),
         )
 
+        # Independent checks — a token violating several rules reports every
+        # violation ("all failures are collected" holds at token granularity).
+        token_ok = True
         if lstart > lend:
+            token_ok = False
             failures.append(
                 f"citation: reversed range L{lstart}-L{lend} at body line "
                 f"{line_no} (range rule: 1 <= Lstart <= Lend)"
             )
-        elif fm_sha12 is not None and suffix is not None and suffix != fm_sha12:
+        if fm_sha12 is not None and suffix is not None and suffix != fm_sha12:
+            token_ok = False
             failures.append(
                 f"citation: explicit suffix @{suffix} at body line {line_no} "
                 f"does not equal frontmatter sha12 @{fm_sha12} "
                 "(suffix-equals-sha, D24)"
             )
-        else:
+        if token_ok:
             citations.append((path, lstart, lend))
         idx = m.end()
 
@@ -353,19 +361,44 @@ def check_quote_in_range(citations, fm, clone, failures):
         return
     line_counts = {}
     for path in sorted({c[0] for c in citations}):
-        result = subprocess.run(
-            ["git", "show", f"{sha}:{path}"],
-            cwd=clone, capture_output=True,
-        )
+        # `git cat-file blob` (not `git show`): show exits 0 on a TREE and
+        # prints a directory listing, so a citation to a directory would
+        # "validate" against the listing's length. cat-file blob fails on
+        # anything that is not a real file's content.
+        try:
+            result = subprocess.run(
+                ["git", "cat-file", "blob", f"{sha}:{path}"],
+                cwd=clone, capture_output=True, timeout=30,
+            )
+        except FileNotFoundError:
+            failures.append(
+                "quote-in-range: git executable not found on PATH — cannot "
+                "verify citations"
+            )
+            return
+        except subprocess.TimeoutExpired:
+            failures.append(
+                f"quote-in-range: git timed out reading '{path}' at sha "
+                f"{sha[:SHA12_LEN]} (30s bound)"
+            )
+            line_counts[path] = None
+            continue
         if result.returncode != 0:
             failures.append(
-                f"quote-in-range: cited path '{path}' does not exist in the "
+                f"quote-in-range: cited path '{path}' is not a file in the "
                 f"clone at sha {sha[:SHA12_LEN]} "
-                f"(git show: {result.stderr.decode(errors='replace').strip()})"
+                f"(git cat-file: {result.stderr.decode(errors='replace').strip()})"
             )
             line_counts[path] = None
         else:
-            line_counts[path] = len(result.stdout.splitlines())
+            # Count newline-delimited lines the way Lstart-Lend will actually
+            # be resolved — bytes.splitlines() would also split on \r and
+            # inflate counts for CR-bearing or binary blobs, silently passing
+            # out-of-range citations.
+            content = result.stdout
+            line_counts[path] = content.count(b"\n") + (
+                1 if content and not content.endswith(b"\n") else 0
+            )
     for path, lstart, lend in citations:
         count = line_counts.get(path)
         if count is None:
@@ -377,6 +410,9 @@ def check_quote_in_range(citations, fm, clone, failures):
             )
 
 
+USAGE = "usage: validate-digest <digest.md> [--clone <path-to-clone>]\n"
+
+
 def main(argv):
     args = argv[1:]
     clone = None
@@ -385,19 +421,19 @@ def main(argv):
     while i < len(args):
         if args[i] == "--clone":
             if i + 1 >= len(args):
-                sys.stderr.write("usage: validate-digest <digest.md> [--clone <path-to-clone>]\n")
+                sys.stderr.write(USAGE)
                 return 2
             clone = args[i + 1]
             i += 2
         elif args[i].startswith("-"):
             sys.stderr.write(f"validate-digest: unknown option {args[i]!r}\n")
-            sys.stderr.write("usage: validate-digest <digest.md> [--clone <path-to-clone>]\n")
+            sys.stderr.write(USAGE)
             return 2
         else:
             positional.append(args[i])
             i += 1
     if len(positional) != 1:
-        sys.stderr.write("usage: validate-digest <digest.md> [--clone <path-to-clone>]\n")
+        sys.stderr.write(USAGE)
         return 2
     digest_path = positional[0]
     if not os.path.isfile(digest_path):

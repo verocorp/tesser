@@ -79,44 +79,60 @@ def fail(message: str) -> "None":
 
 def append_line(root: str, record: dict) -> None:
     """Append one JSON object as one line. Append mode only — never
-    read-modify-write, never truncate."""
-    os.makedirs(root, exist_ok=True)
+    read-modify-write, never truncate. The line is emitted as a single
+    os.write on an O_APPEND fd so concurrent invocations cannot interleave
+    bytes mid-line. The log may hold questions, repo URLs, and local paths,
+    so the state dir is 0700 and the log 0600."""
+    os.makedirs(root, mode=0o700, exist_ok=True)
     line = json.dumps(record, ensure_ascii=False, separators=(", ", ": "))
-    with open(os.path.join(root, LOG_NAME), "a", encoding="utf-8") as f:
-        f.write(line + "\n")
+    fd = os.open(
+        os.path.join(root, LOG_NAME),
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+        0o600,
+    )
+    try:
+        os.write(fd, (line + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
 
 
-def derive_invocation_source(root: str, ts: str) -> str:
-    """Derive seeded/self from the first-run marker (D6/6A).
-
-    Marker absent: this is the first invocation ever — create the marker
-    (ISO-8601 UTC ts of this invocation, newline-terminated) and return
-    "seeded". Marker present: return "self". The marker is never deleted or
-    rewritten."""
+def create_marker(root: str, ts: str) -> None:
+    """Create the first-run marker (ISO-8601 UTC ts, newline-terminated).
+    O_EXCL guarantees an existing marker is never rewritten (and refuses to
+    follow a pre-placed symlink). A concurrent first invocation losing this
+    race is fine: both runs already logged, exactly one marker exists."""
     marker_path = os.path.join(root, MARKER_NAME)
-    if os.path.exists(marker_path):
-        return "self"
-    os.makedirs(root, exist_ok=True)
-    # 'x' (exclusive create) guarantees we never rewrite an existing marker.
-    with open(marker_path, "x", encoding="utf-8") as f:
-        f.write(ts + "\n")
-    return "seeded"
+    try:
+        fd = os.open(marker_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return
+    try:
+        os.write(fd, (ts + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
 
 
 def cmd_open(args: argparse.Namespace) -> None:
     root = state_root()
     ts = utc_now_iso()
     record_id = str(uuid.uuid4())
+    # Derive seeded/self from marker EXISTENCE only (D6/6A); the marker is
+    # created after a successful append so a failed append (disk full,
+    # unwritable root) cannot consume the one-and-only seeded attribution
+    # without a seeded record existing in the log.
+    is_first = not os.path.exists(os.path.join(root, MARKER_NAME))
     record = {
         "id": record_id,
         "event": "opened",
         "ts": ts,
         "question": args.question,
-        "invocation_source": derive_invocation_source(root, ts),
+        "invocation_source": "seeded" if is_first else "self",
     }
     if args.repo is not None:
         record["repo"] = args.repo
     append_line(root, record)
+    if is_first:
+        create_marker(root, ts)
     print(record_id)
 
 

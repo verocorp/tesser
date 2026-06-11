@@ -177,6 +177,22 @@ describe("gate 2 — finalize outcome enum + digest-served semantics", () => {
     expect(logBytes(home).equals(before)).toBe(true);
   });
 
+  it("accepts every dependency_kind slug in the schema enum (drift gate)", () => {
+    // Mirrors the outcome loop: if the script's DEPENDENCY_KINDS constant
+    // drops or misspells any schema slug, this fails — the duplicated
+    // constant cannot drift from log-schema.yaml undetected.
+    const home = freshHome();
+    for (const kind of KINDS) {
+      const id = openOk(home, `q for ${kind}`);
+      const res = run(home, [
+        "finalize", "--id", id, "--outcome", OUTCOMES[0],
+        "--sha", VALID_SHA, "--dependency-kind", kind,
+      ]);
+      expect(res.status, `kind ${kind} must be accepted: ${res.stderr}`).toBe(0);
+      expect(logLines(home).at(-1)!.dependency_kind).toBe(kind);
+    }
+  });
+
   it("digest-served run is completed WITH consulted_cached_digest set (no separate outcome)", () => {
     const home = freshHome();
     // Pin the field name against the schema, not a hardcoded copy.
@@ -304,9 +320,18 @@ describe("gate 6 — malformed-args rejection + append-only integrity", () => {
     expect(SHA_RE.test("abc123")).toBe(false);
     expect(KINDS).not.toContain("saas");
 
+    // A question with embedded newline, quotes, and non-ASCII stays one
+    // JSONL line (json escaping) and round-trips verbatim per the schema.
+    const gnarly = 'why does fmt::Display panic?\nsee "léger" ⟦weird⟧';
+    const gnarlyId = openOk(home, gnarly);
+    const gnarlyLines = logLines(home); // logLines asserts line integrity
+    const gnarlyRec = gnarlyLines.find((l) => l.id === gnarlyId)!;
+    expect(gnarlyRec.question).toBe(gnarly);
+    const snapshot2 = logBytes(home);
+
     // Valid sequence: each call appends exactly one line, and the previous
     // bytes remain a strict prefix (append-only — never rewritten).
-    let prev = snapshot;
+    let prev = snapshot2;
     const valid: string[][] = [
       ["open", "--question", "valid follow-up"],
       ["finalize", "--id", id, "--outcome", OUTCOMES[0], "--sha", VALID_SHA, "--dependency-kind", KINDS[0]],

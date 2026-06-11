@@ -167,8 +167,113 @@ describe("gate 2: known-good digest, with quote-in-range", () => {
     });
     const { status, stderr } = runValidator(digest, cloneDir);
     expect(status).toBe(1);
-    expect(stderr).toMatch(/does not exist/);
+    expect(stderr).toMatch(/is not a file/);
   });
+
+  it("citation to a DIRECTORY fails quote-in-range (git show would pass trees)", () => {
+    const digest = writeDigest({
+      repo: `file://${cloneDir}`,
+      sha: cloneSha,
+      namePart: "fixtureorg--fixturerepo",
+      body: "\nA directory is not quotable ⟦src:L1-L2⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, cloneDir);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/is not a file/);
+  });
+
+  it("CR-bearing blob does not inflate the line count", () => {
+    // "a\rb\rc\n" is ONE newline-delimited line; splitlines()-style counting
+    // would see three and pass an out-of-range citation.
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: cloneDir, encoding: "utf8" });
+    fs.writeFileSync(path.join(cloneDir, "src", "cr.txt"), "a\rb\rc\n");
+    git("add", "src/cr.txt");
+    git("commit", "--quiet", "-m", "cr fixture");
+    const crSha = git("rev-parse", "HEAD").trim();
+    const digest = writeDigest({
+      repo: `file://${cloneDir}`,
+      sha: crSha,
+      namePart: "fixtureorg--fixturerepo",
+      body: "\nOut of range on logical lines ⟦src/cr.txt:L1-L3⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, cloneDir);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/exceeds file length 1/);
+  });
+});
+
+// Usage and parse error paths: the exit-code contract beyond 0/1.
+describe("usage + parse error paths", () => {
+  it("exits 2 on usage errors", () => {
+    // no args
+    const noArgs = spawnSync(validator, [], { encoding: "utf8" });
+    expect(noArgs.status).toBe(2);
+    // nonexistent digest file
+    expect(runValidator(path.join(os.tmpdir(), "no-such-digest.md")).status).toBe(2);
+    // unknown option
+    const unknown = spawnSync(validator, [goodFixture, "--frobnicate"], {
+      encoding: "utf8",
+    });
+    expect(unknown.status).toBe(2);
+    // --clone with a non-directory
+    expect(runValidator(goodFixture, path.join(os.tmpdir(), "not-a-dir-xyz")).status).toBe(2);
+  });
+
+  it("exits 1 with a parse failure on missing or unclosed frontmatter", () => {
+    const dir = path.join(tmpRoot, "parse-cases");
+    fs.mkdirSync(dir, { recursive: true });
+    const noFm = path.join(dir, `acme--widget@${GOOD_SHA12}.md`);
+    fs.writeFileSync(noFm, "just a body, no frontmatter\n");
+    let res = runValidator(noFm);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toMatch(/parse:/);
+
+    fs.writeFileSync(noFm, "---\nrepo: x\nno closing delimiter\n");
+    res = runValidator(noFm);
+    expect(res.status).toBe(1);
+    expect(res.stderr).toMatch(/parse:/);
+  });
+});
+
+// Identity derivation negatives: URLs that pass the frontmatter pattern but
+// from which no host/org/repo identity is derivable (D28 guard clauses).
+describe("identity derivation negatives", () => {
+  it.each([["https://github.com/widget"], ["file:///widget"]])(
+    "identity underivable from %s is a validation failure",
+    (repo) => {
+      const digest = writeDigest({ repo, namePart: "acme--widget" });
+      const { status, stderr } = runValidator(digest);
+      expect(status).toBe(1);
+      expect(stderr).toMatch(/cannot derive identity/);
+    },
+  );
+});
+
+// ts strictness: the PyYAML-datetime branch (unquoted ts) and non-UTC offsets.
+describe("ts UTC strictness", () => {
+  function withRawTs(ts: string): string {
+    const digest = writeDigest({});
+    const text = fs
+      .readFileSync(digest, "utf8")
+      .replace(/ts: .*/, `ts: ${ts}`); // unquoted — PyYAML parses to datetime
+    fs.writeFileSync(digest, text);
+    return digest;
+  }
+
+  it("unquoted UTC ts passes via the datetime branch", () => {
+    const { status, stderr } = runValidator(withRawTs("2026-06-10T18:04:00Z"));
+    expect(status, stderr).toBe(0);
+  });
+
+  it.each([["2026-06-10T18:04:00+02:00"], ["2026-06-10T18:04:00"]])(
+    "non-UTC or naive ts %s is rejected",
+    (ts) => {
+      const { status, stderr } = runValidator(withRawTs(ts));
+      expect(status).toBe(1);
+      expect(stderr).toMatch(/'ts'/);
+    },
+  );
 });
 
 // Gate 3 — known-BAD committed fixture rejected: missing required fields and

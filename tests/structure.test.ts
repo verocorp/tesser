@@ -250,8 +250,18 @@ describe("spec-integrity: digest-schema.yaml", () => {
     const logKinds = logSchema.fields.dependency_kind.enum;
     expect(digestKinds).toEqual(logKinds);
   });
+});
 
-  it("log-schema outcome enum has exactly the four canonical values", () => {
+describe("spec-integrity: log-schema.yaml", () => {
+  it("parses; lifecycle events are exactly [opened, finalized]", () => {
+    expect(logSchema.lifecycle.events).toEqual(["opened", "finalized"]);
+  });
+
+  it("file.append_only is true", () => {
+    expect(logSchema.file.append_only).toBe(true);
+  });
+
+  it("outcome enum has exactly the four canonical values", () => {
     // Deliberately a literal list: this gate exists to catch drift in the
     // schema itself (D21 outcome semantics).
     expect(logSchema.fields.outcome.enum).toEqual([
@@ -263,12 +273,22 @@ describe("spec-integrity: digest-schema.yaml", () => {
   });
 });
 
-describe("spec-integrity: log-schema.yaml", () => {
-  it("parses; lifecycle events are exactly [opened, finalized]", () => {
-    expect(logSchema.lifecycle.events).toEqual(["opened", "finalized"]);
-  });
-
-  it("file.append_only is true", () => {
-    expect(logSchema.file.append_only).toBe(true);
+// ============================================================================
+// C. Stub-marker consistency meta-gate — runs NOW, both states
+// ============================================================================
+// Guards the self-arming mechanism itself: if T4 lands real playbook content
+// but the frontmatter description still carries the STUB marker (forgotten
+// edit), the 17 skipped gates would stay skipped FOREVER with green CI. This
+// meta-gate fails loudly in that state: a STUB-marked SKILL.md must not
+// already carry contract anchors.
+describe("stub-marker consistency", () => {
+  it("a STUB-marked SKILL.md carries no contract anchors (else remove the marker so the gates arm)", () => {
+    if (!SKILL_IS_STUB) return; // armed state: gates 1/2/3/5 cover content
+    for (const c of contract.clauses) {
+      expect(
+        skillText.includes(anchorFor(c.id)),
+        `SKILL.md is marked STUB but already carries the anchor for "${c.id}" — remove the STUB marker from the frontmatter description so the Type-B gates arm`
+      ).toBe(false);
+    }
   });
 });
