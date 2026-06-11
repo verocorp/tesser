@@ -17,27 +17,30 @@ skill_md:
 clauses:
   - id: cited-claims
     delta: true # value-over-baseline delta (i)
-    source: ["design §Narrowest Wedge (i)", "D18"]
+    source: ["design §Narrowest Wedge (i)", "D18", "D24"]
     statement: >-
       Never assert from memory as established fact. Every load-bearing claim
       in a delivered answer carries a citation in the grammar
-      ⟦path:Lstart-Lend⟧@SHA, resolving to the cloned source at the recorded
-      SHA. Anything not yet citable is explicitly labeled with its current
-      truth-grade rather than asserted.
+      ⟦path:Lstart-Lend⟧@sha12 (citation grammar v1.1, digest-schema.yaml),
+      resolving to the cloned source at the cited commit. sha12 — the first
+      12 hex chars of the pinned commit — is the canonical citation form
+      everywhere. Anything not yet citable is explicitly labeled with its
+      current truth-grade rather than asserted.
 
   - id: always-verify
     delta: true # value-over-baseline delta (ii)
-    source: ["design §Narrowest Wedge (ii)", "D3/2A", "D20"]
+    source: ["design §Narrowest Wedge (ii)", "D3/2A", "D20", "D30"]
     statement: >-
       Every run builds and verifies by use, credentials-free, via the
       fallback ladder: runnable binary > test suite > minimal example.
-      Preflight classifies the dependency kind (1 clonable CLI / 2 clonable
-      library / 3 SDK-of-hosted-service / 4 hosted-closed / 5 heavy-infra)
-      and, when the kind caps verification below run-grade, states the
-      truth-grade ceiling before working and discloses the delivered grade
-      in the answer. A prior verified run at the same repo@SHA, served via
-      a validated digest or reused artifacts, satisfies this clause; SHA
-      drift between digest and repo is flagged per digest-consult.
+      Preflight classifies the dependency kind (clonable-cli /
+      clonable-library / sdk-of-hosted-service / hosted-closed /
+      heavy-infra, the D20 ladder as D30 slugs) and, when the kind caps
+      verification below run-grade, states the truth-grade ceiling before
+      working and discloses the delivered grade in the answer. A prior
+      verified run at the same repo@SHA, served via a validated digest or
+      reused artifacts, satisfies this clause; SHA drift between digest and
+      repo is flagged per digest-consult.
 
   - id: question-led
     delta: true # value-over-baseline delta (iii)
@@ -49,34 +52,47 @@ clauses:
 
   - id: digest-consult
     delta: true # value-over-baseline delta (iv)
-    source: ["design §Narrowest Wedge (iv)", "D12", "D14"]
+    source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D24"]
+    # NOTE: the drift-flag's check semantics (async-on-background-clone vs
+    # sync ls-remote vs drop) are D22 — UNRESOLVED, owner Chris, deadline
+    # before T4. The flag obligation below stands; its mechanics await D22.
     statement: >-
       Before cold work, consult bundled digests (digests/ in the skill repo)
       and local digests (~/.tesser/digests/). When a digest for the library
-      is used: serve it with full provenance, flag any SHA drift between the
-      digest and the repo's current state, and log the named digest path
-      (consulted_cached_digest). Cold runs persist a new digest to
-      ~/.tesser/digests/ only after it passes scripts/validate-digest.
+      is used: serve it with full provenance, rewrite bare in-digest
+      citations to the full ⟦path:Lstart-Lend⟧@sha12 form at egress (D24 —
+      a delivered answer never contains a bare citation), flag any SHA
+      drift between the digest and the repo's current state, and log the
+      named digest path (consulted_cached_digest). Cold runs persist a new
+      digest to ~/.tesser/digests/ only after it passes
+      scripts/validate-digest.
 
   - id: invocation-log
     delta: true # value-over-baseline delta (v)
-    source: ["design §Instrument", "D4/3A", "D6/6A", "D14", "D20"]
+    source: ["design §Instrument", "D4/3A", "D6/6A", "D14", "D20", "D21"]
     statement: >-
       Every invocation opens a log record via scripts/log-invocation at
-      start and finalizes it at end with outcome one of completed |
-      completed-unverified | install-failure | aborted. Any failed step
-      (clone, survey, build, verify) captures failing_command and exit_code.
-      Every record logs dependency_kind (the D20 preflight classification),
-      so unservable moments become demand data. The log is local-only at
-      ~/.tesser/log.jsonl; nothing leaves the machine.
+      start and finalizes it at end. The record shape — field set, enums,
+      lifecycle, and outcome semantics (digest-served = completed with
+      consulted_cached_digest set; a walked-away run legitimately stays
+      opened, never force-finalized) — is pinned as data by log-schema.yaml
+      (D21). Any failed step (clone, survey, build, verify) captures
+      failing_command and exit_code. Every record logs dependency_kind (the
+      D20 preflight classification), so unservable moments become demand
+      data. The log is local-only at ~/.tesser/log.jsonl; nothing leaves
+      the machine.
 
   - id: idempotent-reuse
     delta: false
-    source: ["D11"]
+    source: ["D11", "D28"]
     statement: >-
-      At the same repo@SHA, reuse the existing clone, build artifacts, and
-      digest rather than redoing work. Redo only on SHA change, missing or
-      corrupt state, or explicit developer request.
+      Pin-first reuse: the SHA is pinned at first clone, and every later
+      invocation for the same library reuses the existing clone, build
+      artifacts, and digest at that pinned SHA. tesser never auto-chases
+      upstream. Re-pin and redo only on explicit developer request or on
+      missing/corrupt local state. Library identity is the normalized
+      host/org/repo of the clone URL (digest-schema.yaml identity rule);
+      equivalent URL spellings are one library, one clone, one digest.
 
   - id: provisional-first
     delta: false
@@ -85,3 +101,14 @@ clauses:
       Serve a provisional answer immediately at the current truth-grade,
       explicitly labeled as provisional. Upgrade it in place when build and
       verify land. Never block the developer's flow on a compile.
+
+  - id: self-update
+    delta: false
+    source: ["D15", "D23"]
+    statement: >-
+      At invocation, run a quiet git pull --ff-only in the skill's own
+      directory, bounded by a hard 5-second time limit. Fail-silent:
+      offline, timed out, or diverged means the pull is skipped and the run
+      proceeds on the current checkout — the pull never blocks an answer
+      beyond the bound. Installs without a .git directory (zip) skip it
+      entirely. The behavior is disclosed in the README.

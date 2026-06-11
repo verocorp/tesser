@@ -10,16 +10,34 @@ version: 1
 
 file:
   format: markdown with YAML frontmatter
-  naming: "<library>@<sha12>.md" # sha12 = first 12 hex chars of the pinned commit
+  # D27 + D28: the filename's sha12 MUST equal sha[0:12] of the frontmatter
+  # sha (a renamed digest is invalid), and the library part is org--repo from
+  # the normalized identity below — never a bare library name (same-name
+  # different-org libraries must not collide).
+  naming: "<org>--<repo>@<sha12>.md" # sha12 = frontmatter sha[0:12], enforced
   locations:
     bundled: digests/ # ships with the skill, curated keepers
     local: ~/.tesser/digests/ # persisted by cold runs after validation (D12)
+
+# Library identity (D28). Pin-first reuse and digest naming both key on the
+# normalized identity host/org/repo, derived from the clone URL:
+#   - scheme/transport equivalence: https://host/org/repo, ssh://git@host/org/repo,
+#     and scp-style git@host:org/repo all normalize to the same identity
+#   - trailing .git stripped; host, org, and repo lowercased
+#   - file:// (fixtures): host is empty; org = parent directory name,
+#     repo = repository directory name (.git stripped)
+# Forks, aliases, redirects, and monorepo subpaths are explicitly OUT of v1.
+identity:
+  key: host/org/repo
+  digest_name_part: "<org>--<repo>"
 
 frontmatter:
   required:
     repo:
       type: string
-      pattern: "^(https://|git@).+" # canonical clone URL
+      # D25: ssh:// is the URL spelling of the already-allowed git@ transport;
+      # file:// is required by the locked D8 hermetic-fixture strategy.
+      pattern: "^(https://|git@|ssh://|file://).+" # canonical clone URL
     sha:
       type: string
       pattern: "^[0-9a-f]{40}$" # full pinned commit, lowercase hex
@@ -37,29 +55,52 @@ frontmatter:
       type: string
       format: iso8601-utc # when the run happened, e.g. 2026-06-10T18:04:00Z
     dependency_kind:
-      type: integer
-      enum: [1, 2, 3, 4, 5] # D20 ladder: 1 clonable CLI / 2 clonable library /
-      # 3 SDK-of-hosted-service / 4 hosted-closed / 5 heavy-infra
+      type: string
+      # D20 ladder, re-coded as self-describing slugs by D30 (amends D20's
+      # integer coding; decided while zero digests/log records exist).
       # required: D20 mandates preflight classification on every run
-
-  optional:
+      enum: [clonable-cli, clonable-library, sdk-of-hosted-service, hosted-closed, heavy-infra]
     truth_grade:
       type: string
       enum: [run, inspect, docs] # highest grade the digest's claims reach
+      # D26: required — a digest whose grade is unstated defeats the labeling
+      # contract (cited-claims clause); validator rejects when missing
+
+  optional:
     question:
       type: string # the developer question that triggered the run, if any
 
 body:
-  # D18 citation grammar. Full form cites an explicit commit; inside a digest
-  # the @sha12 suffix may be omitted and defaults to the frontmatter sha.
+  # D18 citation grammar, revised to v1.1 by D24. sha12 is THE canonical
+  # citation form everywhere (digests, delivered answers, README). Inside a
+  # digest the @sha12 suffix may be omitted and defaults to the frontmatter
+  # sha; when present it MUST equal the frontmatter sha12 — cross-commit
+  # citations are out of v1 (see TODOS.md) and live as prose, never as
+  # validated citations.
   citation_grammar:
+    version: "1.1"
     full: "⟦path:Lstart-Lend⟧@<sha12>"
-    in_digest: "⟦path:Lstart-Lend⟧"
-    token_pattern: "⟦[^⟧:]+:L[0-9]+-L[0-9]+⟧(@[0-9a-f]{12})?"
+    in_digest: "⟦path:Lstart-Lend⟧" # suffix optional; if present, == frontmatter sha12
+    # Anchored (D24): a malformed suffix — wrong length (8-hex, 17-hex) or an
+    # alphanumeric continuation — invalidates the WHOLE token instead of
+    # partially matching as a bare citation. Line numbers are 1-based with no
+    # leading zeros, so L0 ranges fail at the pattern.
+    token_pattern: "⟦[^⟧:]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@)"
+    range_rule: "1 <= Lstart <= Lend; a reversed range (e.g. L90-L10) is invalid"
+    # D24 serve-path rewrite: when digest content is delivered as an answer,
+    # bare in-digest citations are rewritten to the full form by appending
+    # @<frontmatter sha12> at egress. A delivered answer never contains a
+    # bare citation.
+    serve_path_rewrite: append @<frontmatter sha12> to bare citations at egress
   rules:
     - every load-bearing claim carries a citation
-    - quote-in-range: every cited path must exist and every cited line range
+    - "quote-in-range: every cited path must exist and every cited line range
       must be within the file's length at the frontmatter sha (deterministic
-      check, scripts/validate-digest, D18)
+      check, scripts/validate-digest, D18)"
+    - "suffix-equals-sha: any explicit @sha12 suffix inside a digest must
+      equal the frontmatter sha[0:12]; otherwise the digest is invalid (D24)"
+    - "token-totality: every occurrence of ⟦ in the body must begin a span
+      that fully matches token_pattern; a malformed citation token is a
+      validation failure, not prose (D24)"
     - claims below the digest's truth_grade are individually labeled with
       their own grade

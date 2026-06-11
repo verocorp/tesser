@@ -1,0 +1,111 @@
+# tesser invocation-log schema — spec-as-data (D21)
+#
+# The log is the experiment's primary instrument: P3 second-invocation
+# detection, seeded-vs-self attribution, and demand data all read it.
+# scripts/log-invocation writes it; Type-C tests pin field names and outcome
+# semantics against this file as data. Change only with a matching
+# build-contract decision (see CLAUDE.md).
+
+version: 1
+
+file:
+  path: ~/.tesser/log.jsonl
+  format: jsonl # one JSON object per line, UTF-8
+  append_only: true # lines are never rewritten or deleted in place
+
+# First-run marker, owned by the logger. Pinned here so T3 and its gates have
+# one source for the path. NOTE: the marker's path/contents carry no Dn
+# decision — they are authored in T10 and flagged as such in the T10 commit.
+marker:
+  path: ~/.tesser/first-run
+  created: by scripts/log-invocation on the first opened event
+  contents: ISO-8601 UTC timestamp of that first invocation, newline-terminated
+  rule: never deleted or rewritten by tesser; survives skill reinstall because
+    it lives under ~/.tesser/, not the skill directory
+
+# Lifecycle (D4/3A, D21). scripts/log-invocation appends an `opened` event at
+# invocation start and a `finalized` event at invocation end; the two lines
+# share `id`. Append-only means finalize is a second line, not an update.
+lifecycle:
+  events: [opened, finalized]
+  join_key: id
+  # Walk-away (D21): a run the developer abandons mid-build legitimately has
+  # no finalized line. The logger NEVER force-finalizes a record.
+  walk_away: opened record stays unfinalized; never force-finalized
+  # Analysis-side staleness rule (D21): an opened record with no matching
+  # finalized event after stale_after is classified abandoned BY THE ANALYSIS.
+  # This is a read-side rule only — nothing is ever written back to the log.
+  stale_after: 24h
+
+fields:
+  id:
+    type: string
+    format: uuid-v4
+    events: [opened, finalized] # required on both; the join key
+  event:
+    type: string
+    enum: [opened, finalized]
+    events: [opened, finalized]
+  ts:
+    type: string
+    format: iso8601-utc # each event carries its own timestamp
+    events: [opened, finalized]
+  question:
+    type: string # the developer's question, verbatim
+    events: [opened]
+  invocation_source:
+    type: string
+    enum: [seeded, self] # derived, not asked (D6/6A)
+    events: [opened]
+  repo:
+    type: string # the RESOLVED canonical clone URL (D29: when the input was a
+    # package name, the registry-resolved URL is what gets logged)
+    events: [opened, finalized]
+    presence: optional at opened (input may still be resolving); required at
+      finalized unless the run failed before URL resolution succeeded
+  sha:
+    type: string
+    pattern: "^[0-9a-f]{40}$" # the pinned commit (D28 pin-first)
+    events: [finalized]
+    presence: required when outcome is completed or completed-unverified;
+      optional otherwise (clone may never have happened)
+  dependency_kind:
+    type: string
+    enum: [clonable-cli, clonable-library, sdk-of-hosted-service, hosted-closed, heavy-infra]
+    # D20 ladder, re-coded as self-describing slugs by D30 (amends D20)
+    events: [finalized]
+    presence: required when preflight classification completed; optional when
+      the run failed before preflight
+  outcome:
+    type: string
+    enum: [completed, completed-unverified, install-failure, aborted]
+    events: [finalized] # only finalized lines carry an outcome
+    # Outcome semantics (D21):
+    #   completed             — answer delivered at the dependency-kind's
+    #                           truth-grade ceiling. A digest-served run is
+    #                           completed WITH consulted_cached_digest set —
+    #                           the digest path is the cache discriminator;
+    #                           there is no separate digest-served outcome.
+    #   completed-unverified  — answer delivered BELOW the kind's achievable
+    #                           ceiling (a build/verify rung failed or had not
+    #                           landed by delivery). Reaching a kind-capped
+    #                           ceiling (e.g. docs-grade for hosted-closed)
+    #                           is completed, not completed-unverified.
+    #   install-failure       — no answer at any grade: clone/resolve/setup
+    #                           failed before an answer could be served.
+    #   aborted               — the developer explicitly cancelled.
+    # A walked-away run has NO outcome — the record stays opened (see
+    # lifecycle.walk_away).
+  failing_command:
+    type: string
+    events: [finalized]
+    presence: required, together with exit_code, whenever any step (clone,
+      survey, build, verify) failed — including completed-unverified runs
+  exit_code:
+    type: integer
+    events: [finalized]
+    presence: required together with failing_command
+  consulted_cached_digest:
+    type: string # path of the digest served, existence-validated (D14)
+    events: [finalized]
+    presence: required when a cached digest was served; absent otherwise
