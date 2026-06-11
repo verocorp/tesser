@@ -289,7 +289,9 @@ describe("spec-integrity: log-schema.yaml", () => {
     const field = logSchema.fields.digest_sha256;
     expect(field).toBeDefined();
     expect(field.pattern).toBe("^[0-9a-f]{64}$");
-    expect(String(field.presence)).toMatch(/persisted or served/);
+    // Coupled to a served digest (logger-enforced), logged alone at persist.
+    expect(String(field.presence)).toMatch(/required together with consulted_cached_digest/);
+    expect(String(field.presence)).toMatch(/persisted/);
   });
 });
 

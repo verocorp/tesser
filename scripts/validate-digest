@@ -80,6 +80,11 @@ except ImportError:
 # suffix; the value 12 is the definition of "sha12" in digest-schema.yaml.
 SHA12_LEN = 12
 
+# Hard bound on every git subprocess. TESSER_VALIDATE_GIT_TIMEOUT overrides
+# it ONLY so the timeout->exit-4 gate can run in test time; real invocations
+# never set it (same posture as TESSER_HOME).
+GIT_TIMEOUT = float(os.environ.get("TESSER_VALIDATE_GIT_TIMEOUT") or 30)
+
 CITATION_EXTRACT = re.compile(
     "⟦([^⟧:]+):L([0-9]+)-L([0-9]+)⟧(?:@([0-9a-f]+))?"
 )
@@ -431,7 +436,7 @@ def check_quote_in_range(citations, fm, clone, failures, env_failures):
         try:
             result = subprocess.run(
                 ["git", "cat-file", "blob", f"{sha}:{path}"],
-                cwd=clone, capture_output=True, timeout=30,
+                cwd=clone, capture_output=True, timeout=GIT_TIMEOUT,
             )
         except FileNotFoundError:
             env_failures.append(
@@ -442,7 +447,8 @@ def check_quote_in_range(citations, fm, clone, failures, env_failures):
         except subprocess.TimeoutExpired:
             env_failures.append(
                 f"quote-in-range: git timed out reading '{path}' at sha "
-                f"{sha[:SHA12_LEN]} (30s bound; environment failure, D34)"
+                f"{sha[:SHA12_LEN]} ({GIT_TIMEOUT:g}s bound; environment "
+                "failure, D34)"
             )
             line_counts[path] = None
             continue
@@ -489,7 +495,7 @@ def check_clone_identity(fm, clone, failures, env_failures):
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
-            cwd=clone, capture_output=True, timeout=30,
+            cwd=clone, capture_output=True, timeout=GIT_TIMEOUT,
         )
     except FileNotFoundError:
         env_failures.append(
@@ -499,8 +505,8 @@ def check_clone_identity(fm, clone, failures, env_failures):
         return
     except subprocess.TimeoutExpired:
         env_failures.append(
-            "clone-identity: git timed out reading the origin remote "
-            "(30s bound; environment failure, D34)"
+            f"clone-identity: git timed out reading the origin remote "
+            f"({GIT_TIMEOUT:g}s bound; environment failure, D34)"
         )
         return
     if result.returncode != 0:

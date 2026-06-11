@@ -176,6 +176,11 @@ def cmd_finalize(args: argparse.Namespace) -> None:
         fail("--failing-command and --exit-code are required together")
     if args.digest is not None and not os.path.exists(args.digest):
         fail(f"--digest path does not exist: {args.digest!r} (D14)")
+    # D35: a served digest is logged WITH its hash — the contract's
+    # digest-consult clause couples them. Hash-only (persist, no serve) is
+    # fine; path-only is not.
+    if args.digest is not None and args.digest_sha256 is None:
+        fail("--digest requires --digest-sha256 (a served digest logs its hash, D35)")
 
     record = {
         "id": args.id,

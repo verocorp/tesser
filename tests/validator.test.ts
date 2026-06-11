@@ -343,6 +343,33 @@ describe("environment failures exit 4 (D34)", () => {
     expect(stderr).toMatch(/git executable not found/);
   });
 
+  it("git subprocess timeout is exit 4, not invalid", () => {
+    // PATH carries python3 plus a git that hangs past the (test-shrunk)
+    // bound. TESSER_VALIDATE_GIT_TIMEOUT is the tests-only override, same
+    // posture as TESSER_HOME.
+    const realPython = execFileSync("python3", [
+      "-c",
+      "import sys; print(sys.executable)",
+    ], { encoding: "utf8" }).trim();
+    const binDir = path.join(tmpRoot, "hanging-git-bin");
+    fs.mkdirSync(binDir, { recursive: true });
+    const linked = path.join(binDir, "python3");
+    if (!fs.existsSync(linked)) fs.symlinkSync(realPython, linked);
+    // Absolute /bin/sleep: the stripped PATH has no coreutils.
+    fs.writeFileSync(path.join(binDir, "git"), "#!/bin/sh\n/bin/sleep 5\n", {
+      mode: 0o755,
+    });
+
+    const digest = writeDigest({});
+    const { status, stderr } = runValidator(digest, path.dirname(digest), {
+      PATH: binDir,
+      TESSER_VALIDATE_GIT_TIMEOUT: "0.5",
+    });
+    expect(status, stderr).toBe(4);
+    expect(stderr).toMatch(/ENVIRONMENT/);
+    expect(stderr).toMatch(/timed out/);
+  });
+
   it("unreadable digest-schema.yaml is exit 4 (broken skill checkout)", () => {
     // Copy the validator into a root with no digest-schema.yaml next to it.
     const brokenRoot = path.join(tmpRoot, "broken-checkout");

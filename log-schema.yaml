@@ -129,4 +129,6 @@ fields:
     # evidence for the instrument ONLY — recorded when a digest is persisted
     # or served, never verified at runtime. v1 digest integrity is filesystem
     # trust; the verification layer is a triggered TODO (TODOS.md).
-    presence: logged when a digest was persisted or served; absent otherwise
+    presence: required together with consulted_cached_digest (a served digest
+      logs its hash — logger-enforced); also logged alone when a digest was
+      persisted without a cached serve; absent otherwise

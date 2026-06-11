@@ -204,7 +204,7 @@ describe("gate 2 — finalize outcome enum + digest-served semantics", () => {
     const id = openOk(home, "digest-served question");
     const res = run(home, [
       "finalize", "--id", id, "--outcome", "completed",
-      "--sha", VALID_SHA, "--digest", digest,
+      "--sha", VALID_SHA, "--digest", digest, "--digest-sha256", "cd".repeat(32),
     ]);
     expect(res.status).toBe(0);
     const last = logLines(home).at(-1)!;
@@ -280,6 +280,28 @@ describe("gate — digest_sha256 passive evidence (D35/D10)", () => {
       expect(logBytes(home).equals(before)).toBe(true);
     },
   );
+
+  it("--digest without --digest-sha256 is rejected — a served digest logs its hash (D35)", () => {
+    const home = freshHome();
+    const digest = join(home, "served-digest.md");
+    writeFileSync(digest, "# digest\n");
+    const id = openOk(home, "served without hash?");
+    const before = logBytes(home);
+    const res = run(home, [
+      "finalize", "--id", id, "--outcome", "completed",
+      "--sha", VALID_SHA, "--digest", digest,
+    ]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/--digest-sha256/);
+    expect(logBytes(home).equals(before)).toBe(true);
+
+    // Hash-only (persist without a cached serve) stays legal.
+    const res2 = run(home, [
+      "finalize", "--id", id, "--outcome", "completed",
+      "--sha", VALID_SHA, "--digest-sha256", "ef".repeat(32),
+    ]);
+    expect(res2.status, res2.stderr).toBe(0);
+  });
 });
 
 describe("gate 3 — seeded/self derivation via the first-run marker", () => {
