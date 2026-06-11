@@ -96,11 +96,19 @@ clauses:
 
   - id: provisional-first
     delta: false
-    source: ["D19"]
+    source: ["D19", "T11 spike 2026-06-11"]
+    # "Upgrade in place" corrected to observed host mechanics (T11): an agent
+    # cannot edit already-emitted text; the upgrade is a superseding follow-up.
     statement: >-
       Serve a provisional answer immediately at the current truth-grade,
-      explicitly labeled as provisional. Upgrade it in place when build and
-      verify land. Never block the developer's flow on a compile.
+      explicitly labeled as provisional. Launch build-and-verify as a
+      background task in the same turn. When the completion notification
+      lands, verify the artifact and supersede the provisional answer with
+      an upgraded answer at the new truth-grade, as an explicit follow-up
+      in the same session — a delivered answer is never silently edited.
+      If the session ends before the build lands, the next invocation finds
+      the finished build state under ~/.tesser/ and serves the upgraded
+      grade from it. Never block the developer's flow on a compile.
 
   - id: self-update
     delta: false
