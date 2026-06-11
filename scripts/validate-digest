@@ -1,0 +1,457 @@
+#!/usr/bin/env python3
+"""validate-digest — deterministic digest validator (T8).
+
+Usage: validate-digest <digest.md> [--clone <path-to-clone>]
+
+Validates a tesser digest against digest-schema.yaml (the canonical spec,
+read as DATA at runtime from the repo root relative to this script — the
+patterns and enums live there, not here).
+
+Checks, in order:
+  1. File parses: YAML frontmatter delimited by --- lines + markdown body.
+  2. Frontmatter required fields present; patterns/enums/shapes enforced.
+  3. Filename rule (D27/D28): <org>--<repo>@<sha12>.md, sha12 == sha[0:12],
+     org--repo == normalized identity of the frontmatter repo URL.
+  4. Citation grammar v1.1 (D24): token-totality, suffix-equals-sha,
+     range rule 1 <= Lstart <= Lend.
+  5. Quote-in-range (D18), only when --clone is given: every cited path
+     exists at the frontmatter sha and Lend <= file line count at that sha.
+     Without --clone this check is reported as skipped.
+
+All failures are collected (not fail-fast) and written to stderr, one per
+line. Exit codes: 0 valid, 1 invalid, 2 usage error, 3 PyYAML missing.
+"""
+
+import os
+import re
+import subprocess
+import sys
+from datetime import timezone, datetime
+
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write("validate-digest: PyYAML is required: pip install pyyaml\n")
+    sys.exit(3)
+
+# sha12 length per D27 (filename rule) and the citation grammar's @<sha12>
+# suffix; the value 12 is the definition of "sha12" in digest-schema.yaml.
+SHA12_LEN = 12
+
+CITATION_EXTRACT = re.compile(
+    "⟦([^⟧:]+):L([0-9]+)-L([0-9]+)⟧(?:@([0-9a-f]+))?"
+)
+
+
+def load_schema():
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    schema_path = os.path.join(repo_root, "digest-schema.yaml")
+    with open(schema_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def split_frontmatter(text):
+    """Return (frontmatter_str, body_str) or raise ValueError."""
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("file does not start with a '---' frontmatter delimiter")
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[1:i]), "\n".join(lines[i + 1:])
+    raise ValueError("frontmatter is not closed by a second '---' delimiter")
+
+
+def normalize_identity(repo_url):
+    """Derive the normalized identity (host, org, repo) per digest-schema.yaml
+    identity rule (D28). Returns (host, org, repo) or raises ValueError.
+
+    - https://host/org/repo, ssh://git@host/org/repo, scp-style
+      git@host:org/repo all normalize to the same identity
+    - trailing .git stripped; host/org/repo lowercased
+    - file://: host empty; org = parent directory name, repo = repository
+      directory name (.git stripped)
+    """
+    url = repo_url.strip()
+
+    def strip_git(s):
+        return s[:-4] if s.endswith(".git") else s
+
+    if url.startswith("file://"):
+        path = url[len("file://"):]
+        path = path.rstrip("/")
+        parts = [p for p in path.split("/") if p]
+        if len(parts) < 2:
+            raise ValueError(
+                f"cannot derive identity from file:// URL {repo_url!r}: "
+                "need at least a parent directory and a repository directory"
+            )
+        org = parts[-2].lower()
+        repo = strip_git(parts[-1]).lower()
+        return "", org, repo
+
+    host = None
+    path = None
+    m = re.match(r"^(https|ssh)://(?:[^/@]+@)?([^/:]+)(?::[0-9]+)?/(.+)$", url)
+    if m:
+        host = m.group(2)
+        path = m.group(3)
+    else:
+        # scp-style: git@host:org/repo
+        m = re.match(r"^[^/@]+@([^/:]+):(.+)$", url)
+        if m:
+            host = m.group(1)
+            path = m.group(2)
+    if host is None:
+        raise ValueError(f"cannot derive identity from repo URL {repo_url!r}")
+
+    parts = [p for p in path.rstrip("/").split("/") if p]
+    if len(parts) < 2:
+        raise ValueError(
+            f"cannot derive identity from repo URL {repo_url!r}: "
+            "need org and repo path segments"
+        )
+    org = parts[-2].lower()
+    repo = strip_git(parts[-1]).lower()
+    return host.lower(), org, repo
+
+
+def check_frontmatter(fm, schema, failures):
+    """Validate frontmatter against schema.frontmatter (data-driven).
+    Returns the dict (possibly empty) for downstream checks."""
+    if not isinstance(fm, dict):
+        failures.append("frontmatter: YAML frontmatter must be a mapping")
+        return {}
+
+    required = schema["frontmatter"]["required"]
+    for field, spec in required.items():
+        if field not in fm:
+            failures.append(f"frontmatter: required field '{field}' is missing")
+            continue
+        value = fm[field]
+        check_field(field, value, spec, failures)
+
+    optional = schema["frontmatter"].get("optional", {})
+    for field, spec in optional.items():
+        if field in fm:
+            check_field(field, fm[field], spec, failures)
+
+    return fm
+
+
+def check_field(field, value, spec, failures):
+    ftype = spec.get("type")
+    if ftype == "string":
+        # PyYAML parses unquoted ISO timestamps into datetime objects; accept
+        # both for fields whose format is iso8601-utc, strings otherwise.
+        if spec.get("format") == "iso8601-utc":
+            check_iso8601_utc(field, value, failures)
+            return
+        if not isinstance(value, str):
+            failures.append(
+                f"frontmatter: '{field}' must be a string, got {type(value).__name__}"
+            )
+            return
+        pattern = spec.get("pattern")
+        if pattern and not re.match(pattern, value):
+            failures.append(
+                f"frontmatter: '{field}' value {value!r} does not match "
+                f"schema pattern {pattern!r}"
+            )
+        enum = spec.get("enum")
+        if enum and value not in enum:
+            failures.append(
+                f"frontmatter: '{field}' value {value!r} not in schema enum {enum}"
+            )
+    elif ftype == "object":
+        if not isinstance(value, dict):
+            failures.append(
+                f"frontmatter: '{field}' must be a mapping, got {type(value).__name__}"
+            )
+            return
+        for key in spec.get("required_keys", []):
+            if key not in value:
+                failures.append(
+                    f"frontmatter: '{field}' is missing required key '{key}'"
+                )
+    elif ftype == "list":
+        if not isinstance(value, list):
+            failures.append(
+                f"frontmatter: '{field}' must be a list, got {type(value).__name__}"
+            )
+            return
+        min_items = spec.get("min_items")
+        if min_items is not None and len(value) < min_items:
+            failures.append(
+                f"frontmatter: '{field}' must have at least {min_items} item(s), "
+                f"got {len(value)}"
+            )
+        item_spec = spec.get("item")
+        if item_spec:
+            type_map = {"string": str, "integer": int}
+            for i, item in enumerate(value):
+                if not isinstance(item, dict):
+                    failures.append(
+                        f"frontmatter: '{field}[{i}]' must be a mapping, "
+                        f"got {type(item).__name__}"
+                    )
+                    continue
+                for key, key_spec in item_spec.items():
+                    if key not in item:
+                        failures.append(
+                            f"frontmatter: '{field}[{i}]' is missing key '{key}'"
+                        )
+                        continue
+                    expected = type_map.get(key_spec.get("type"))
+                    actual = item[key]
+                    # bool is a subclass of int; an exit_code of `true` is invalid
+                    if expected and (
+                        not isinstance(actual, expected) or isinstance(actual, bool)
+                    ):
+                        failures.append(
+                            f"frontmatter: '{field}[{i}].{key}' must be "
+                            f"{key_spec.get('type')}, got {type(actual).__name__}"
+                        )
+
+
+def check_iso8601_utc(field, value, failures):
+    if isinstance(value, datetime):
+        # PyYAML already parsed it; require an explicit UTC offset.
+        if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(None):
+            failures.append(
+                f"frontmatter: '{field}' must be an ISO-8601 UTC timestamp "
+                f"(explicit Z / +00:00 offset), got {value!r}"
+            )
+        return
+    if not isinstance(value, str):
+        failures.append(
+            f"frontmatter: '{field}' must be an ISO-8601 UTC timestamp string, "
+            f"got {type(value).__name__}"
+        )
+        return
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        failures.append(
+            f"frontmatter: '{field}' value {value!r} is not valid ISO-8601"
+        )
+        return
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(None):
+        failures.append(
+            f"frontmatter: '{field}' value {value!r} is not UTC "
+            "(explicit Z / +00:00 offset required)"
+        )
+
+
+def check_filename(digest_path, fm, failures):
+    """Filename rule (D27/D28): basename == <org>--<repo>@<sha12>.md where
+    sha12 == frontmatter sha[0:12] exactly and org--repo is the normalized
+    identity of the frontmatter repo URL."""
+    sha = fm.get("sha")
+    repo_url = fm.get("repo")
+    if not isinstance(sha, str) or not isinstance(repo_url, str):
+        return  # missing/mistyped fields already reported in frontmatter checks
+
+    basename = os.path.basename(digest_path)
+
+    try:
+        _host, org, repo = normalize_identity(repo_url)
+    except ValueError as e:
+        failures.append(f"filename: {e}")
+        return
+
+    expected = f"{org}--{repo}@{sha[:SHA12_LEN]}.md"
+    if basename == expected:
+        return
+
+    # Mismatch — say which part is wrong when the name is parseable.
+    m = re.match(r"^(.+)@([0-9a-f]+)\.md$", basename)
+    if m:
+        name_part, name_sha12 = m.group(1), m.group(2)
+        if name_sha12 != sha[:SHA12_LEN]:
+            failures.append(
+                f"filename: sha12 '{name_sha12}' does not equal frontmatter "
+                f"sha[0:12] '{sha[:SHA12_LEN]}' (a renamed digest is invalid, D27)"
+            )
+        if name_part != f"{org}--{repo}":
+            failures.append(
+                f"filename: library part '{name_part}' does not equal the "
+                f"normalized identity '{org}--{repo}' derived from the "
+                f"frontmatter repo URL (D28)"
+            )
+    else:
+        failures.append(
+            f"filename: '{basename}' does not follow <org>--<repo>@<sha12>.md; "
+            f"expected '{expected}'"
+        )
+
+
+def check_citations(body, fm, schema, failures):
+    """Citation grammar v1.1 (D24). Returns the list of well-formed citations
+    as (path, lstart, lend) tuples for quote-in-range."""
+    grammar = schema["body"]["citation_grammar"]
+    token_re = re.compile(grammar["token_pattern"])
+    sha = fm.get("sha")
+    fm_sha12 = sha[:SHA12_LEN] if isinstance(sha, str) else None
+
+    citations = []
+    open_bracket = "⟦"  # ⟦
+    idx = 0
+    while True:
+        idx = body.find(open_bracket, idx)
+        if idx == -1:
+            break
+        line_no = body.count("\n", 0, idx) + 1
+        m = token_re.match(body, idx)
+        if not m:
+            snippet = body[idx: idx + 60].split("\n")[0]
+            failures.append(
+                f"citation: malformed token at body line {line_no}: "
+                f"'{snippet}' does not fully match the schema token_pattern "
+                "(token-totality, D24)"
+            )
+            idx += 1
+            continue
+
+        token = m.group(0)
+        ext = CITATION_EXTRACT.match(token)
+        # token_pattern is a strict subset of the extraction regex, so this
+        # always matches; guard anyway.
+        if not ext:
+            failures.append(
+                f"citation: internal error extracting token at body line "
+                f"{line_no}: '{token}'"
+            )
+            idx = m.end()
+            continue
+        path, lstart, lend, suffix = (
+            ext.group(1), int(ext.group(2)), int(ext.group(3)), ext.group(4),
+        )
+
+        if lstart > lend:
+            failures.append(
+                f"citation: reversed range L{lstart}-L{lend} at body line "
+                f"{line_no} (range rule: 1 <= Lstart <= Lend)"
+            )
+        elif fm_sha12 is not None and suffix is not None and suffix != fm_sha12:
+            failures.append(
+                f"citation: explicit suffix @{suffix} at body line {line_no} "
+                f"does not equal frontmatter sha12 @{fm_sha12} "
+                "(suffix-equals-sha, D24)"
+            )
+        else:
+            citations.append((path, lstart, lend))
+        idx = m.end()
+
+    return citations
+
+
+def check_quote_in_range(citations, fm, clone, failures):
+    """D18: every cited path exists in the clone at the frontmatter sha and
+    every cited Lend <= the file's line count at that sha."""
+    sha = fm.get("sha")
+    if not isinstance(sha, str):
+        return
+    line_counts = {}
+    for path in sorted({c[0] for c in citations}):
+        result = subprocess.run(
+            ["git", "show", f"{sha}:{path}"],
+            cwd=clone, capture_output=True,
+        )
+        if result.returncode != 0:
+            failures.append(
+                f"quote-in-range: cited path '{path}' does not exist in the "
+                f"clone at sha {sha[:SHA12_LEN]} "
+                f"(git show: {result.stderr.decode(errors='replace').strip()})"
+            )
+            line_counts[path] = None
+        else:
+            line_counts[path] = len(result.stdout.splitlines())
+    for path, lstart, lend in citations:
+        count = line_counts.get(path)
+        if count is None:
+            continue
+        if lend > count:
+            failures.append(
+                f"quote-in-range: citation ⟦{path}:L{lstart}-L{lend}⟧ "
+                f"exceeds file length {count} at sha {sha[:SHA12_LEN]}"
+            )
+
+
+def main(argv):
+    args = argv[1:]
+    clone = None
+    positional = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--clone":
+            if i + 1 >= len(args):
+                sys.stderr.write("usage: validate-digest <digest.md> [--clone <path-to-clone>]\n")
+                return 2
+            clone = args[i + 1]
+            i += 2
+        elif args[i].startswith("-"):
+            sys.stderr.write(f"validate-digest: unknown option {args[i]!r}\n")
+            sys.stderr.write("usage: validate-digest <digest.md> [--clone <path-to-clone>]\n")
+            return 2
+        else:
+            positional.append(args[i])
+            i += 1
+    if len(positional) != 1:
+        sys.stderr.write("usage: validate-digest <digest.md> [--clone <path-to-clone>]\n")
+        return 2
+    digest_path = positional[0]
+    if not os.path.isfile(digest_path):
+        sys.stderr.write(f"validate-digest: no such file: {digest_path}\n")
+        return 2
+    if clone is not None and not os.path.isdir(clone):
+        sys.stderr.write(f"validate-digest: --clone path is not a directory: {clone}\n")
+        return 2
+
+    schema = load_schema()
+    failures = []
+
+    with open(digest_path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    # 1. Parse: frontmatter + body
+    try:
+        fm_str, body = split_frontmatter(text)
+    except ValueError as e:
+        failures.append(f"parse: {e}")
+        report(failures)
+        return 1
+    try:
+        fm = yaml.safe_load(fm_str)
+    except yaml.YAMLError as e:
+        failures.append(f"parse: frontmatter is not valid YAML: {e}")
+        report(failures)
+        return 1
+
+    # 2. Frontmatter fields
+    fm = check_frontmatter(fm, schema, failures)
+
+    # 3. Filename rule
+    check_filename(digest_path, fm, failures)
+
+    # 4. Citation grammar v1.1
+    citations = check_citations(body, fm, schema, failures)
+
+    # 5. Quote-in-range (only with --clone)
+    if clone is not None:
+        check_quote_in_range(citations, fm, clone, failures)
+    else:
+        sys.stderr.write(
+            "validate-digest: NOTE: quote-in-range check skipped (no --clone given)\n"
+        )
+
+    report(failures)
+    return 1 if failures else 0
+
+
+def report(failures):
+    for failure in failures:
+        sys.stderr.write(f"INVALID: {failure}\n")
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
