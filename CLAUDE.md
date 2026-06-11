@@ -16,9 +16,9 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T11 | Spike: background-build→upgrade-in-place flow (D19 mechanics) in a throwaway skill | done (95277d1); clause 7 corrected — "upgrade in place" = superseding follow-up + ~/.tesser/ recovery; report in verocorp-tesser slug |
 | T3 | scripts/log-invocation + logger tests | done (32bfd90; hardened 29b66f2) |
 | T8 | scripts/validate-digest | done (594602a; hardened 29b66f2) |
-| T4 | SKILL.md playbook | next — **D22 RESOLVED 2026-06-11 (async drift)**; read the T11 spike report's Seeds-for-T4 first; removing the STUB marker self-arms the 17 Type-B gates |
-| T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2; +30 T12 gates 322c33f) — B-gates self-arm when T4 lands |
-| T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | done (322c33f) — 82 active gates green; T9 layout unblocked |
+| T4 | SKILL.md playbook | done (e9c48d4; review fixes ec4fb57) — STUB removed, 17 Type-B gates armed; awaits Phase-3 maintainer taste gate |
+| T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2; +30 T12 gates 322c33f; +27 T4/review gates → 109 active) — B-gates armed |
+| T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | done (322c33f) — T9 layout unblocked |
 | T6 | E2E fixtures + suite | pending |
 | T7 | Eval stub (RUN_EVAL-gated) | pending |
 | T9 | Digest corpus seed | pending (supervised) |
@@ -30,6 +30,8 @@ Phase 2 plan eng-reviewed 2026-06-10: findings resolved into contract decisions 
 Phase 2 (T10+T11+T3+T8+T5) closed 2026-06-11: deterministic gates green (52 passed, 17 self-armed skips pending T4), adversarial contract audit PASS-WITH-FINDINGS (F1 README/clause-7 contradiction fixed a5f0bb7; F2 the 5-second self-update bound is an accepted authored constant under D23; F4 accepted then closed in 29b66f2), /gstack-review run cross-model over the phase diff (3 confirmed defects + mechanical hardening fixed in 29b66f2), pushed.
 
 Close-review 2026-06-11 (/gstack-plan-eng-review over the parked findings, with Codex outside voice): all ten findings resolved into contract decisions **D31–D38** (host-aware digest layout amending D28's identity key to host + full namespace path; install-time deps via requirements.txt + scripts/setup amending the D1 install story; sha presence rule + logger gate; exit 4 environment failures; v1 trust posture + digest_sha256 logged passive-only; first-schema-valid-finalized-wins join rule; charset + repo-relative path tightening; --clone identity binding), and **D22 RESOLVED: async drift** — serve immediately labeled drift-unchecked, background clone computes, superseding follow-up delivers (the T11-proven mechanic). T12 carries all spec/code edits; full record in the phase2-close-report (verocorp-tesser slug) GSTACK REVIEW REPORT + eng-reviews/tesser-phase2-close-decisions in the brain.
+
+Phase 3 (T12+T4) built 2026-06-11: deterministic gates green (109 passed, 0 skips — the 17 self-armed Type-B gates armed when T4 removed the STUB marker); adversarial contract audit over the T12+T4 diff returned "could not refute completion" (two soft spots fixed: D34 timeout exit-4 gate + digest/hash logger coupling, 5026106); /gstack-review cross-model (testing + maintainability specialists, Claude adversarial, Codex adversarial, red-team) — confirmed defects fixed in ec4fb57 (clone-lacks-commit→exit 4, control-char crash, replace-ref hardening, alias-bomb cap, BOM, drift-clone pin divergence, cold-persist cache-hit metric corruption), two robustness items deferred to TODOS under v1's accepted untrusted-code posture. **Not yet pushed — awaits the Phase-3 maintainer taste gate (Chris reads SKILL.md) before push.** Items surfaced for a maintainer decision (not unilaterally changed): digest selection tie-break formalization (clause-bearing?), whether ≥1 citation is required for a valid digest, and asymmetric logger enforcement (install-failure/completed presence rules — logger-gated vs analysis-side).
 
 ## Decision namespaces
 
