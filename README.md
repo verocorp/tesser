@@ -8,7 +8,7 @@ tesser is a Claude Code skill. You ask a question about an unfamiliar dependency
 
 - Clones the repo at a pinned SHA — pinned at first clone and reused from then on. It never silently chases upstream; re-pinning happens only when you ask.
 - Surveys the structure, then kicks off a build in the background.
-- Answers your actual question first: you get a provisional answer immediately, labeled with its evidence grade, and it's upgraded in place once build and verify land. It never blocks your flow.
+- Answers your actual question first: you get a provisional answer immediately, labeled with its evidence grade, and once build and verify land, a follow-up answer at the upgraded grade supersedes it — a delivered answer is never silently edited. If your session ends mid-build, the next invocation picks up the finished build state and serves the upgraded grade from it. It never blocks your flow.
 - Verifies end-to-end, credentials-free: a runnable binary if there is one, else the test suite, else a minimal example.
 - Cites every load-bearing claim as `⟦path:Lstart-Lend⟧@sha12` — the first 12 characters of the pinned commit.
 - Classifies the dependency kind up front — clonable CLI, clonable library, SDK-of-hosted-service, hosted-closed, heavy-infra — and tells you the evidence-grade ceiling before doing any work. A hosted closed service can only get docs-grade answers, and tesser says so instead of pretending otherwise.
