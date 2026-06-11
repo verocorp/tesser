@@ -1,0 +1,16 @@
+{
+  "name": "tesser-tests",
+  "private": true,
+  "description": "Maintainer-side test harness for the tesser skill. The skill itself has no runtime npm dependencies; this package exists only to run the deterministic gates (tests/).",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "js-yaml": "^4.1.0",
+    "@types/js-yaml": "^4.0.9",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  }
+}

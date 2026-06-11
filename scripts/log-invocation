@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""tesser invocation logger (T3).
+
+Implements the record spec pinned as data in log-schema.yaml (D21). Appends
+`opened` / `finalized` event lines to the invocation log, one JSON object per
+line, append-only: the file is only ever opened in append mode, never
+read-modify-written, never truncated. A finalize is a second line sharing the
+open's id, not an update. The logger NEVER force-finalizes an opened record —
+the only code path that emits a `finalized` line is an explicit `finalize`
+call (walk-away semantics, D21).
+
+State root: ~/.tesser/ (log at <root>/log.jsonl, first-run marker at
+<root>/first-run). The TESSER_HOME environment variable overrides the root —
+it exists ONLY so tests can run hermetically against a temp directory; real
+invocations never set it.
+
+invocation_source is DERIVED, never an argument (D6/6A): marker absent means
+"seeded" (and the marker is created); marker present means "self". The marker
+is never deleted or rewritten by tesser.
+
+Usage:
+  log-invocation open --question <text> [--repo <url>]
+      Appends an opened event; prints the new record id to stdout.
+  log-invocation finalize --id <uuid> --outcome <value> [--repo <url>]
+      [--sha <40hex>] [--dependency-kind <slug>]
+      [--failing-command <cmd> --exit-code <int>] [--digest <path>]
+      Appends a finalized event with exactly the fields supplied.
+
+Any malformed or invalid argument exits nonzero with a message on stderr and
+appends nothing.
+"""
+
+import argparse
+import json
+import os
+import re
+import sys
+import uuid
+from datetime import datetime, timezone
+
+# Enums and patterns mirror log-schema.yaml (the source of truth — D21).
+# Keep them in sync only via a matching build-contract decision.
+OUTCOMES = ("completed", "completed-unverified", "install-failure", "aborted")
+DEPENDENCY_KINDS = (
+    "clonable-cli",
+    "clonable-library",
+    "sdk-of-hosted-service",
+    "hosted-closed",
+    "heavy-infra",
+)
+SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+LOG_NAME = "log.jsonl"
+MARKER_NAME = "first-run"
+
+
+def state_root() -> str:
+    """Resolve the state root: TESSER_HOME (tests only) or ~/.tesser/."""
+    override = os.environ.get("TESSER_HOME")
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".tesser")
+
+
+def utc_now_iso() -> str:
+    """ISO-8601 UTC timestamp with a Z suffix."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def fail(message: str) -> "None":
+    print(f"log-invocation: error: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def append_line(root: str, record: dict) -> None:
+    """Append one JSON object as one line. Append mode only — never
+    read-modify-write, never truncate."""
+    os.makedirs(root, exist_ok=True)
+    line = json.dumps(record, ensure_ascii=False, separators=(", ", ": "))
+    with open(os.path.join(root, LOG_NAME), "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def derive_invocation_source(root: str, ts: str) -> str:
+    """Derive seeded/self from the first-run marker (D6/6A).
+
+    Marker absent: this is the first invocation ever — create the marker
+    (ISO-8601 UTC ts of this invocation, newline-terminated) and return
+    "seeded". Marker present: return "self". The marker is never deleted or
+    rewritten."""
+    marker_path = os.path.join(root, MARKER_NAME)
+    if os.path.exists(marker_path):
+        return "self"
+    os.makedirs(root, exist_ok=True)
+    # 'x' (exclusive create) guarantees we never rewrite an existing marker.
+    with open(marker_path, "x", encoding="utf-8") as f:
+        f.write(ts + "\n")
+    return "seeded"
+
+
+def cmd_open(args: argparse.Namespace) -> None:
+    root = state_root()
+    ts = utc_now_iso()
+    record_id = str(uuid.uuid4())
+    record = {
+        "id": record_id,
+        "event": "opened",
+        "ts": ts,
+        "question": args.question,
+        "invocation_source": derive_invocation_source(root, ts),
+    }
+    if args.repo is not None:
+        record["repo"] = args.repo
+    append_line(root, record)
+    print(record_id)
+
+
+def cmd_finalize(args: argparse.Namespace) -> None:
+    # Validate everything BEFORE building/appending the record: an invalid
+    # finalize must append zero bytes.
+    if not UUID_PATTERN.match(args.id):
+        fail(f"--id must be a canonical lowercase UUID, got {args.id!r}")
+    if args.outcome not in OUTCOMES:
+        fail(
+            f"--outcome must be one of {', '.join(OUTCOMES)} "
+            f"(log-schema.yaml outcome enum), got {args.outcome!r}"
+        )
+    if args.sha is not None and not SHA_PATTERN.match(args.sha):
+        fail(f"--sha must match ^[0-9a-f]{{40}}$, got {args.sha!r}")
+    if args.dependency_kind is not None and args.dependency_kind not in DEPENDENCY_KINDS:
+        fail(
+            f"--dependency-kind must be one of {', '.join(DEPENDENCY_KINDS)} "
+            f"(log-schema.yaml dependency_kind enum), got {args.dependency_kind!r}"
+        )
+    if (args.failing_command is None) != (args.exit_code is None):
+        fail("--failing-command and --exit-code are required together")
+    if args.digest is not None and not os.path.exists(args.digest):
+        fail(f"--digest path does not exist: {args.digest!r} (D14)")
+
+    record = {
+        "id": args.id,
+        "event": "finalized",
+        "ts": utc_now_iso(),
+    }
+    if args.repo is not None:
+        record["repo"] = args.repo
+    if args.sha is not None:
+        record["sha"] = args.sha
+    if args.dependency_kind is not None:
+        record["dependency_kind"] = args.dependency_kind
+    record["outcome"] = args.outcome
+    if args.failing_command is not None:
+        record["failing_command"] = args.failing_command
+        record["exit_code"] = args.exit_code
+    if args.digest is not None:
+        record["consulted_cached_digest"] = args.digest
+    append_line(state_root(), record)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="log-invocation",
+        description="Append tesser invocation-log events (log-schema.yaml, D21).",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_open = sub.add_parser("open", help="append an opened event; print its id")
+    p_open.add_argument("--question", required=True, help="the developer's question, verbatim")
+    p_open.add_argument("--repo", help="resolved canonical clone URL, if already known")
+    p_open.set_defaults(func=cmd_open)
+
+    p_fin = sub.add_parser("finalize", help="append a finalized event")
+    p_fin.add_argument("--id", required=True, help="id printed by the matching open")
+    p_fin.add_argument("--outcome", required=True, help=f"one of: {', '.join(OUTCOMES)}")
+    p_fin.add_argument("--repo", help="resolved canonical clone URL")
+    p_fin.add_argument("--sha", help="pinned 40-hex commit SHA")
+    p_fin.add_argument(
+        "--dependency-kind",
+        dest="dependency_kind",
+        help=f"one of: {', '.join(DEPENDENCY_KINDS)}",
+    )
+    p_fin.add_argument("--failing-command", dest="failing_command", help="the command that failed")
+    p_fin.add_argument("--exit-code", dest="exit_code", type=int, help="exit code of the failing command")
+    p_fin.add_argument(
+        "--digest",
+        help="path of the cached digest served (logged as consulted_cached_digest)",
+    )
+    p_fin.set_defaults(func=cmd_finalize)
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
