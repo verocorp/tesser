@@ -40,6 +40,7 @@
 version: 1
 status: draft
 locked_at: "2026-06-11"
+revised_at: "2026-06-12"   # folded in: 2 of 3 opens settled from 5 scored cells + the codeharness run-grade-cap finding. See scoreboard-results.md.
 revision_trigger: "maintainer dogfoods the tool a few times, then revise against observed reality"
 
 baseline:
@@ -72,7 +73,10 @@ axes:
     t_final: "uncapped; only runs when the user opts to deepen. cold t_first is the gate, not t_final."
     deterministic: true
     measurement_source: "session transcript timestamps (JSONL)"
-    open: "ttfa_baseline_rule"          # how to mark the DEFAULT agent's first substantive answer (it carries no marker) — see open_decisions
+    baseline_rule:                      # SETTLED 2026-06-12 from 5 scored cells (ttfa_baseline_rule, was open)
+      default: "first assistant text block >= 250 chars. Measured cleanly: default preambles ('I'll research the Coral repo...') ran 90-135 chars; real answers 2900+ chars. No overlap."
+      tesser: "MUST emit a structurally-detectable first-answer marker — the >=250-char rule MISFIRES on tesser (its process-narration blocks exceed 250 and are not answers; e.g. codeharness-cold's first >=250 block at 107.6s was 'Cold run — no digest, no clone. Preflight/classif...', pure machinery). The marker also makes the answer_leads check trivial."
+      note: "the rule is asymmetric by necessity; this asymmetry is a real design requirement on tesser, not a measurement convenience."
 
   # ---------------------------------------------------------------------------
   truer:
@@ -97,6 +101,34 @@ axes:
       is where tesser pulls AHEAD only on drifted/complex deps. Report per-cell.
     deterministic: "core executable claim-checks are deterministic; claims not reducible to a quick assertion are agent-adjudicated and must cite path:line@sha (auditable, not free of variance)"
     prototype: "the 2026-06-11 evening red-team (refute a bare answer's numbered claims against source@SHA, score per-claim) — this is the seed of T6/T7"
+    achieved_grade_vs_oracle:           # ADDED 2026-06-12 from the codeharness external-clone cell — load-bearing
+      distinction: >
+        Separate two truth-grades. (1) The SCOREBOARD ORACLE executes offline,
+        permissioned, to ADJUDICATE each claim — this is how the metric is
+        computed and it is always available. (2) tesser's PRODUCTION truth-grade
+        is the grade tesser can actually reach at answer time, and on its real
+        target it is CAPPED below run-grade.
+      production_truth_cap: >
+        On the codeharness external untrusted clone, tesser installed deps
+        (run-grade on deps) then was DENIED execution of the cloned code by the
+        host auto-mode permission classifier ('External/Untrusted Code'). So
+        tesser's production ceiling on untrusted external deps = inspect-grade,
+        and only in a permissive host posture can it reach run-grade. tesser
+        does NOT control that posture (design: no confinement of its own, does
+        nothing the host couldn't), and most devs default to auto-mode.
+      consequence: >
+        The default agent ADAPTIVELY INSPECTS when a repo is clonable (bare
+        codeharness cloned to /tmp and read every file). So on inspect-able
+        cells tesser and the default both reach inspect-grade and TRUTH TIES —
+        tesser's run-grade path to breaking the tie is policy-walled in the
+        common posture. And even the run-grade tesser COULD reach bought
+        near-nothing on codeharness (the two credentials-free scripts were the
+        lowest-stakes claims; the load-bearing behavior needed a Gemini key +
+        running Postgres, unreachable). Net: tesser's truth EDGE over the
+        default is structurally thin in v1. The path to 'better than default'
+        runs through FASTER + DIGESTIBLE; truth is occasional-bonus, not the
+        core differentiator the 'truth(er)' framing implied. (Observation
+        feeding the open target-redefinition, not a closed verdict.)
 
   # ---------------------------------------------------------------------------
   digestible:
@@ -107,6 +139,13 @@ axes:
       functional-extraction test and NO completeness/answeredness scoring:
       those assume what the function of the response is, which we must not bake
       in (maintainer). Structure only.
+    priority: >                         # REORDERED 2026-06-12 from data: raw citation-ratio understated the problem ~10x
+      Weight the checks in this order — (1) no_internal_lexicon_leak [hard 0],
+      (2) answer_leads, (3) length_vs_default, (4) citation placement. Measured
+      basis: current tesser leaked 18 internal terms on pyyaml / 12 on
+      codeharness-cold and led with process narration, while its citation-noise
+      RATIO was only ~0.04 (default 0.000). The lexicon + narration + 3-5x
+      length are the digestibility killers; the raw ratio is a weak signal.
     checks:
       no_internal_lexicon_leak:
         rule: "the human-facing output must contain NONE of the forbidden internal-impl terms"
@@ -122,13 +161,16 @@ axes:
           - raw "⟦...⟧@sha" citation markup shown to a human
         open: "forbidden_lexicon_final"  # see open_decisions
         deterministic: true
-      citation_noise_ratio:
-        rule: "markup characters / content characters must be below a ceiling"
-        ceiling: null                  # MUST be set from measured real outputs, not guessed — see open_decisions
-        open: "noise_ratio_ceiling"
+      citation_placement:               # SETTLED 2026-06-12 (was noise_ratio_ceiling, open) — placement rule, not a global ratio
+        rule: "ZERO raw ⟦...⟧@sha citation markup above the fold / in the first answer. Citations live in an appendix or are revealed on demand. A global ratio threshold was rejected: measured tesser ratio was only ~0.04 and still felt non-digestible, because placement (citations in the lead) not ratio is what hurts."
+        measured: "default = 0.000 citation markup across all 5 cells; current tesser = 0.024-0.044, in-line."
+        deterministic: true
+      length_vs_default:                # PROMOTED 2026-06-12 — a real digestibility signal from data
+        rule: "first-answer length should be at or below the default's answer length for the same question (not 3-5x it)"
+        measured: "current tesser ran 9.6k (pyyaml) / 21.6k-29k (codeharness) chars vs the default's 3.0-5.8k."
         deterministic: true
       answer_leads:
-        rule: "the direct answer to the asked question appears first, not buried under method/caveats"
+        rule: "the direct answer to the asked question appears first, not buried under method/caveats or process narration ('Self-update done', 'Log opened', 'Pinned at <sha>', 'Found a local digest')"
         deterministic: true
       provisional_marker_hygiene:
         rule: "borrowed verbatim from gs-structure-skill-test structure.test.ts — provisional/superseding markers well-formed and not leaked as human noise"
@@ -148,15 +190,10 @@ harness:
     - "freshOutDir() under tmpdir so writes can't touch the tracked tree"
 
 open_decisions:
-  - id: ttfa_baseline_rule
-    q: "How do we deterministically mark the DEFAULT agent's first substantive answer? It carries no first-answer marker (tesser does). Candidate: first assistant text with >= N content words not immediately trailing into a tool call; else hand-mark."
-    blocks: "a clean FASTER comparison"
+  # ttfa_baseline_rule + noise_ratio_ceiling SETTLED 2026-06-12 from 5 scored cells (folded into the axes above).
   - id: forbidden_lexicon_final
-    q: "The exact set of internal terms banned from human-facing output. Seed list above; needs maintainer's eye since it doubles as tesser's output writing-style contract."
+    q: "The exact set of internal terms banned from human-facing output. Seed list above; needs maintainer's eye since it doubles as tesser's output writing-style contract. Measured leak counts so far: 18 (pyyaml-tesser), 12 (codeharness-cold), 6 (codeharness-warm)."
     blocks: "the no-leak digestibility check"
-  - id: noise_ratio_ceiling
-    q: "The actual citation-noise-ratio ceiling. Can only be set by measuring a few real tesser + default outputs, not guessed."
-    blocks: "the noise-ratio digestibility check"
 
 references:
   prior_art:
@@ -165,3 +202,5 @@ references:
     - "authority-misattribution: ~/workspace/brain/originals/authority-misattribution.md"
     - "testing-agent-skills doctrine: ~/workspace/brain/concepts/testing-agent-skills.md"
   source_session: "2026-06-11 evening course-correction (raw ac87d4d5) + 2026-06-12 plan-eng-review defining this scoreboard"
+  scored_data: "scoreboard-results.md — 5 cells (pyyaml, coral, kinesis, caffeinate, codeharness) default column + tesser runs where available, scored 2026-06-12"
+  codeharness_ab: "raw 722857bf (with/cold) · 43e3760d (with/warm) · cb07030a (without/bare); brain projects/tesser.md 2026-06-12 entry"
