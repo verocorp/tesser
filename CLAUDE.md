@@ -16,7 +16,7 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T11 | Spike: background-build→upgrade-in-place flow (D19 mechanics) in a throwaway skill | done (95277d1); clause 7 corrected — "upgrade in place" = superseding follow-up + ~/.tesser/ recovery; report in verocorp-tesser slug |
 | T3 | scripts/log-invocation + logger tests | done (32bfd90; hardened 29b66f2) |
 | T8 | scripts/validate-digest | done (594602a; hardened 29b66f2) |
-| T4 | SKILL.md playbook | done (e9c48d4; review fixes ec4fb57) — STUB removed, 17 Type-B gates armed; awaits Phase-3 maintainer taste gate |
+| T4 | SKILL.md playbook | done (e9c48d4; review fixes ec4fb57); scorer-driven rework (Output contract: answer-first, silent steps 1–5, plain-language no-jargon, citation placement) traced to the T7a scoreboard failures on pyyaml-tesser — awaits Phase-3 maintainer taste gate + a fresh dogfood session scored to close the loop |
 | T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2; +30 T12 gates 322c33f; +27 T4/review gates → 109 active) — B-gates armed |
 | T7a | Scoreboard scorer — deterministic core (`tests/scoreboard/`: parse + score + cli + 19 tests) | done — reads scoreboard.yaml as data; FASTER/DIGESTIBLE/CALIBRATED-A computed; reproduces scoreboard-results.md numbers (GOLD tests against the real A/B sessions); `npm run score`. Deferred per spec: CALIBRATED Obligation B (agent-judged, RUN_EVAL); first-answer MARKER + `forbidden_lexicon_final` are surfaced maintainer decisions |
 | T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | done (322c33f) — T9 layout unblocked |

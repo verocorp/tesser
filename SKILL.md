@@ -12,6 +12,14 @@ Two rules override every habit:
 - **Never assert from memory as established fact** (contract:cited-claims). Every load-bearing claim in a delivered answer carries a citation `⟦path:Lstart-Lend⟧@sha12` — sha12 = the first 12 hex chars of the pinned commit — resolving to the cloned source at that commit. A delivered answer never contains a bare `⟦path:Lstart-Lend⟧` citation: append `@sha12` at egress. Anything you cannot cite yet is labeled with its current truth-grade (run > inspect > docs), never asserted.
 - **The developer's question leads every response** (contract:question-led). Provisional or final, the answer comes first; survey results, build reports, and provenance serve it and never bury it.
 
+### Output contract — what the developer actually sees
+
+The machinery is invisible; the answer is everything. tesser is graded against the developer's *default agent*, which answers fast, in plain language, leading with the point. To beat it, every human-facing emission obeys three rules:
+
+- **Answer first — never a status line.** Your first emission is a direct answer to what was asked, in a short paragraph or ≤3 bullets. Steps 1–5 below (self-update, log, digest-consult, classify, pin) run **silently**: never narrate them — no "I'll use the tesser skill", "I'll work through the protocol", "Self-update done", "Log opened", "Pinned at …", "Cold run", or "Preflight/classification". If a quick read or prior knowledge lets you answer usefully in seconds, do so now and say how you know it; the clone/build/verify then **upgrades** that answer — it never gates the first one. Then offer to go deeper ("pulling more to confirm by running it — tell me your follow-ups").
+- **Plain language — never leak the internal vocabulary.** `run-grade`, `inspect-grade`, `docs-grade`, `truth-grade`, `provisional`, `digest`, `cold run`, `kind slug`, and "the skill" are tesser's *internal* model — they belong in the log and `~/.tesser/`, never in front of the developer. Convey the same calibration in English: "I ran it — `python -c …` printed 8", "read it in the source at `src/lib.py:12`, didn't run it", "recalling from training, likely right but unverified", "couldn't run the LLM path — it needs a Gemini key I don't have". Same honesty about how-you-know, zero jargon.
+- **Citations support, never clutter.** Keep load-bearing claims grounded, but raw `⟦…⟧@sha12` markup never opens an answer. Lead with the plain answer; surface the citation inline only when the locus *is* the answer ("where is it set?" → `src/lib.py:12`), otherwise collect the markup in a closing provenance list.
+
 All persisted state lives under `~/.tesser/` — never inside this skill's directory:
 
 ```
@@ -53,7 +61,7 @@ Serve follow-ups from the digest and the clone; any claim neither can ground goe
 
 ## 4. Preflight: classify, state the ceiling
 
-Before any work, classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` — and when the kind caps verification below run-grade, tell the developer the truth-grade ceiling *before* working, not after: an SDK of a hosted service gets client-side claims at run-grade and server-side behavior at docs-grade, disclosed; hosted-closed gets docs-grade, said plainly; heavy-infra gets whatever subset genuinely ran. All verification is credentials-free — never ask for or use the developer's credentials. Reaching a kind-capped ceiling is a completed run, not a failure; the log turns unservable moments into demand data.
+Before any work, classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (an internal call, not said aloud) — and when the kind caps how far you can verify, tell the developer up front, in plain words, what you'll be able to confirm by running versus only describe from docs: an SDK of a hosted service lets you run the client calls but only describe the server's behavior, disclosed; a closed hosted service you can only describe, said plainly; heavy-infra gets whatever subset genuinely ran. All verification is credentials-free — never ask for or use the developer's credentials. Reaching a kind-capped ceiling is a completed run, not a failure; the log turns unservable moments into demand data.
 
 ## 5. Pin or reuse (contract:idempotent-reuse)
 
@@ -66,7 +74,7 @@ Also check `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/state`: a previous
 Order of operations, inside one turn:
 
 1. **Survey just enough to ground the answer**: README, top-level structure, `git log -1`, then the files the question actually implicates. The survey serves the question — read what it needs, not a fixed checklist.
-2. **Emit the provisional answer first**, labeled with grade, pin, and time — e.g. `[provisional — inspect-grade, widget@a1b2c3d4e5f6, 14:02Z]` — claims cited to file:line.
+2. **Emit the answer first**, in plain language, saying how you know it ("from reading the source, not yet run" vs "I ran it and saw …") — claims cited to file:line. This is a first pass you will upgrade when the build lands; flag that in plain words ("confirming by running it now"), never with internal grade jargon (see the Output contract).
 3. **Launch the build in the background in the same turn**: Bash with `run_in_background: true`, output tee'd to `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/build.log`; write `state: building`. Use whatever the repo itself declares — `cargo build --release`, `go build ./...`, `npm ci`, `make`, `pip install -e .` — tesser is process-general and assumes no ecosystem.
 4. **Keep serving the developer.** Answer follow-ups from source with citations. Never foreground-wait, never poll-sleep — never block the developer's flow on a compile. If asked how the build is going, read `build.log` and report; don't re-run anything.
 
