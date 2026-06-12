@@ -18,9 +18,10 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T8 | scripts/validate-digest | done (594602a; hardened 29b66f2) |
 | T4 | SKILL.md playbook | done (e9c48d4; review fixes ec4fb57) — STUB removed, 17 Type-B gates armed; awaits Phase-3 maintainer taste gate |
 | T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2; +30 T12 gates 322c33f; +27 T4/review gates → 109 active) — B-gates armed |
+| T7a | Scoreboard scorer — deterministic core (`tests/scoreboard/`: parse + score + cli + 19 tests) | done — reads scoreboard.yaml as data; FASTER/DIGESTIBLE/CALIBRATED-A computed; reproduces scoreboard-results.md numbers (GOLD tests against the real A/B sessions); `npm run score`. Deferred per spec: CALIBRATED Obligation B (agent-judged, RUN_EVAL); first-answer MARKER + `forbidden_lexicon_final` are surfaced maintainer decisions |
 | T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | done (322c33f) — T9 layout unblocked |
 | T6 | E2E fixtures + suite | pending — to be redefined to pin against `scoreboard.yaml` (D39) after the post-dogfood revision pass |
-| T7 | Eval stub (RUN_EVAL-gated) | pending — becomes the outcome-anchored scoreboard runner (FASTER/TRUER/DIGESTIBLE vs default), not an obedience eval |
+| T7 | Eval stub (RUN_EVAL-gated) | in progress — deterministic scorer landed (T7a above). Remaining: the RUN_EVAL agent-judged B-faithfulness tail + win-condition matrix runner over multiple cells |
 | T9 | Digest corpus seed | pending (supervised) |
 
 Phase 1 (T1+T2) closed 2026-06-10: deterministic gates n/a (no tests exist yet), adversarial contract audit passed (a1083d2), code review run at high effort over the full phase diff (10 spec-level findings reported to the maintainer; spec files unchanged pending contract decisions), pushed.

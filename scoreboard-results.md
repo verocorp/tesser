@@ -145,3 +145,29 @@ maintainer rendered.
 - Default: `~/.claude/projects/-Users-chris-workspace-tesserts-without/` — pyyaml `617bdfbb` (from-memory, pyyaml is the 2nd user turn after "hi"), coral `dd430e04`, kinesis `e8ebe946`, caffeinate `f3eb5295`, codeharness `cb07030a`. (Two pyyaml bare sessions `3cfbd91f`/`70389162` died on retries — 0 assistant records.)
 - Tesser: `~/.claude/projects/-Users-chris-workspace-tesserts-with/` — pyyaml `db8e01b9`, codeharness cold `722857bf`, codeharness warm `43e3760d`.
 - TTFA rule applied: first assistant text block ≥250 chars (default preambles measured 90-135 chars; answers 2,900+). The rule misfires on tesser — see `scoreboard.yaml` faster.baseline_rule.
+
+## Durable scorer (T7a, 2026-06-12)
+
+The throwaway `/tmp/score.py` + `/tmp/answer.py` probes are now superseded by the
+durable scorer at `tests/scoreboard/` (`npm run score -- <session> [--vs <baseline>]`).
+It reads the bars + forbidden lexicon from `scoreboard.yaml` (spec-as-data) and
+reproduces the numbers above — TTFA 19.6s / 3,248-char answer (pyyaml default),
+14 provenance pointers + narration-lead + ≥1 gap (pyyaml tesser) — pinned as GOLD
+tests against the real A/B sessions (`score.test.ts`).
+
+**One divergence the durable scorer settles:** the lexicon-leak count for
+pyyaml-tesser is **24** occurrences over the full human-facing output (run-grade×8,
+provisional×8, digest×6, truth-grade×1, cold run×1), not the **18** the lost probe
+published. The durable definition (case-insensitive literal-term occurrences across
+all assistant text) supersedes the probe; the hard-0 gate fires identically either
+way. The 12/6 codeharness counts were probe-era and should be re-derived with the
+durable scorer before they are cited again.
+
+**Two items surfaced for a maintainer decision (not changed unilaterally):**
+1. **First-answer MARKER** — the scorer looks for `axes.faster.first_answer_marker`
+   in `scoreboard.yaml`; it does not exist yet, so tesser TTFA falls back to the
+   ≥250-char rule (flagged as a misfiring upper-ceiling). Defining the marker
+   string doubles as tesser's `first_answer_shape` contract → a scoreboard edit
+   under a D-decision.
+2. **`forbidden_lexicon_final`** — still open (the seed list drove the 24-count
+   above). Closing it finalizes the hard-0 check.

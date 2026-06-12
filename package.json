@@ -4,7 +4,8 @@
   "description": "Maintainer-side test harness for the tesser skill. The skill itself has no runtime npm dependencies; this package exists only to run the deterministic gates (tests/).",
   "type": "module",
   "scripts": {
-    "test": "vitest run"
+    "test": "vitest run",
+    "score": "node tests/scoreboard/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
