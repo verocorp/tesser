@@ -19,8 +19,8 @@ The canonical build-contract artifacts (design doc, test plan, task list) and st
 | T4 | SKILL.md playbook | done (e9c48d4; review fixes ec4fb57) — STUB removed, 17 Type-B gates armed; awaits Phase-3 maintainer taste gate |
 | T5 | 19 deterministic gate tests | done (54b415a; +6 review gates 29b66f2; +30 T12 gates 322c33f; +27 T4/review gates → 109 active) — B-gates armed |
 | T12 | Spec+code repair: 2026-06-11 close-review decisions D31–D38 + D22 resolution (host-aware digest layout, install-time deps, log/validator semantics) | done (322c33f) — T9 layout unblocked |
-| T6 | E2E fixtures + suite | pending |
-| T7 | Eval stub (RUN_EVAL-gated) | pending |
+| T6 | E2E fixtures + suite | pending — to be redefined to pin against `scoreboard.yaml` (D39) after the post-dogfood revision pass |
+| T7 | Eval stub (RUN_EVAL-gated) | pending — becomes the outcome-anchored scoreboard runner (FASTER/TRUER/DIGESTIBLE vs default), not an obedience eval |
 | T9 | Digest corpus seed | pending (supervised) |
 
 Phase 1 (T1+T2) closed 2026-06-10: deterministic gates n/a (no tests exist yet), adversarial contract audit passed (a1083d2), code review run at high effort over the full phase diff (10 spec-level findings reported to the maintainer; spec files unchanged pending contract decisions), pushed.
@@ -32,6 +32,8 @@ Phase 2 (T10+T11+T3+T8+T5) closed 2026-06-11: deterministic gates green (52 pass
 Close-review 2026-06-11 (/gstack-plan-eng-review over the parked findings, with Codex outside voice): all ten findings resolved into contract decisions **D31–D38** (host-aware digest layout amending D28's identity key to host + full namespace path; install-time deps via requirements.txt + scripts/setup amending the D1 install story; sha presence rule + logger gate; exit 4 environment failures; v1 trust posture + digest_sha256 logged passive-only; first-schema-valid-finalized-wins join rule; charset + repo-relative path tightening; --clone identity binding), and **D22 RESOLVED: async drift** — serve immediately labeled drift-unchecked, background clone computes, superseding follow-up delivers (the T11-proven mechanic). T12 carries all spec/code edits; full record in the phase2-close-report (verocorp-tesser slug) GSTACK REVIEW REPORT + eng-reviews/tesser-phase2-close-decisions in the brain.
 
 Phase 3 (T12+T4) built 2026-06-11: deterministic gates green (109 passed, 0 skips — the 17 self-armed Type-B gates armed when T4 removed the STUB marker); adversarial contract audit over the T12+T4 diff returned "could not refute completion" (two soft spots fixed: D34 timeout exit-4 gate + digest/hash logger coupling, 5026106); /gstack-review cross-model (testing + maintainability specialists, Claude adversarial, Codex adversarial, red-team) — confirmed defects fixed in ec4fb57 (clone-lacks-commit→exit 4, control-char crash, replace-ref hardening, alias-bomb cap, BOM, drift-clone pin divergence, cold-persist cache-hit metric corruption), two robustness items deferred to TODOS under v1's accepted untrusted-code posture. **Not yet pushed — awaits the Phase-3 maintainer taste gate (Chris reads SKILL.md) before push.** Items surfaced for a maintainer decision (not unilaterally changed): digest selection tie-break formalization (clause-bearing?), whether ≥1 citation is required for a valid digest, and asymmetric logger enforcement (install-failure/completed presence rules — logger-gated vs analysis-side).
+
+Course-correction 2026-06-11→12 (/gstack-office-hours + /gstack-plan-eng-review): the evening red-team of the BARE agent (PyYAML/coral/caffeinate/kinesis) found tesser's experience is worse than the default regardless of question (warm 13.7× slower; on coral — the founding example — bare won 13/14 via WebFetch). Diagnosis (Chris): the 109 gates test OBEDIENCE to SKILL.md, not value. Outcome: **D39 — `scoreboard.yaml`, the outcome-anchored experience contract.** Three axes vs the default-agent null baseline, across the FULL dep range incl. simple deps: **FASTER** (time-to-first-*answer*, UX-TTFR model, hard gate <10s ideal/≤30s — first emission answers now + offers to deepen, not "I'm working on it"), **TRUER** (per-claim provenance verdict vs execution@SHA, both agents scored, biased-sample caveat), **DIGESTIBLE** (structural-only s2n pins incl. no-internal-lexicon-leak; functional/completeness scoring rejected). Locked as draft; maintainer will dogfood then we revise (scheduled re-open). 3 open sub-decisions + the revision pass tracked in TODOS.md. T6/T7 redefined to pin against it. The "stop testing setup questions / narrow to a wedge" direction from the evening session was REJECTED by Chris — simple deps must beat the default too.
 
 ## Decision namespaces
 
@@ -54,5 +56,5 @@ A phase is done only when every applicable rung passes and the build-status ledg
 ## Repo rules
 
 - All persisted runtime state lives under `~/.tesser/` — never inside this repo.
-- `digest-schema.yaml` and `contract.yaml` are spec-as-data: tests pin against them. Change them only with a matching contract decision.
+- `digest-schema.yaml`, `contract.yaml`, and `scoreboard.yaml` are spec-as-data: tests pin against them. Change them only with a matching contract decision.
 - `SKILL.md` and the spec files are taste-bearing files owned by the main build loop, not subagents.

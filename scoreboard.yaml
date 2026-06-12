@@ -1,0 +1,167 @@
+# tesser experience scoreboard — spec-as-data (D39)
+#
+# WHAT THIS IS
+# The measurement contract for whether tesser delivers a better EXPERIENCE than
+# the developer's default agent. Maintainer's framing (2026-06-11 evening course-
+# correction, verbatim): "What is the experience we're trying to deliver to devs?
+# Fast(er) truth. And I should probably say truth(er) too. ... It takes longer,
+# the output is essentially non-digestible for a human, and did it actually
+# improve on truthiness?" Three axes fall out: FASTER, TRUER, DIGESTIBLE.
+#
+# WHY IT EXISTS
+# The 109 deterministic gates that already exist test whether an agent OBEYS
+# SKILL.md — they cannot tell us whether the result beats the default. That is
+# the "measurement trap": a skill that follows our instructions perfectly and
+# still delivers a worse experience. This file defines the outcome-anchored
+# scoreboard the obedience gates can't. Eval/e2e (T6/T7) will pin against it.
+#
+# THE BASELINE (load-bearing)
+# The developer's DEFAULT agent (no tesser skill installed) is the NULL BASELINE.
+# This is the gs-structure-skill-test "need-it" gate applied to tesser: for any
+# (dependency x question) cell the default already clears, tesser does not get to
+# justify itself there. tesser must CLEAR the default per cell, across the FULL
+# dependency range INCLUDING simple, well-documented, low-consequence deps
+# (maintainer: "we need to be able handle simple, less-consequential dependencies
+# better than the default"). Narrowing to a deep-docs-fail wedge was REJECTED.
+#
+# STATUS: draft v1. Locked as the working contract 2026-06-11. A revision pass is
+# pre-committed: the maintainer will dogfood the tool a few times, then we revise
+# against what actually works. The three open_decisions below are not blockers.
+#
+# PRIOR ART PULLED (see references: at bottom)
+#  - gs-structure-skill-test: the null/existing "need-it" gate; deterministic
+#    A/B structure pins (structure.test.ts), incl. provisional-marker hygiene;
+#    the runSkillTurns(--session-id/--resume) harness; the headless-commits-to-
+#    main footgun (isolate writes, --disallowedTools).
+#  - agent-overclaiming RCA: structural-over-dispositional (a required output
+#    FIELD can't be deprioritized like an instruction); caught-errors-are-a-
+#    biased-sample (we can only measure CATCHABLE wrongness).
+
+version: 1
+status: draft
+locked_at: "2026-06-11"
+revision_trigger: "maintainer dogfoods the tool a few times, then revise against observed reality"
+
+baseline:
+  who: "the developer's default agent, no tesser skill installed (bare)"
+  doctrine: "null/existing 'need-it' gate (gs-structure-skill-test) — default is what tesser must beat"
+  scope: "full dependency range, including simple/well-documented/low-consequence deps"
+  rejected_alternative: "narrowing the target to a 'best non-clone authority fails' wedge — maintainer rejected; simple deps must win too"
+  comparison_protocol: "same question, same dependency, same machine + model; tesser run and default run scored on every axis; report per-cell, never averaged across cells (the winning axis shifts with dependency kind)"
+
+axes:
+
+  # ---------------------------------------------------------------------------
+  faster:
+    id: ttfa
+    name: "Time To First Answer"
+    model: "UX time-to-first-render (TTFR), not time-to-complete"
+    definition: >
+      Wall-clock from the question to the first SUBSTANTIVE answer — a real
+      one-liner / short paragraph / <=3 bullets that answers what was asked.
+      An acknowledgment ("I'm researching...", "working on it") does NOT stop
+      the clock. The LLM default tries to be complete every time; tesser must
+      not. The first emission answers now, then offers to go deeper.
+    first_answer_shape:                 # tesser's required first emission (also makes TTFA deterministically detectable)
+      - "a direct concise answer to the asked question (one-liner / paragraph / <=3 bullets)"
+      - "then a deepening-in-progress + invite-follow-ups line: 'I'm pulling more so I can X — tell me your follow-ups'"
+    gate: hard
+    bar:
+      ideal_seconds: 10
+      pass_max_seconds: 30
+    t_final: "uncapped; only runs when the user opts to deepen. cold t_first is the gate, not t_final."
+    deterministic: true
+    measurement_source: "session transcript timestamps (JSONL)"
+    open: "ttfa_baseline_rule"          # how to mark the DEFAULT agent's first substantive answer (it carries no marker) — see open_decisions
+
+  # ---------------------------------------------------------------------------
+  truer:
+    id: truth_delta
+    name: "Provenance-scored truth delta vs the default"
+    definition: >
+      Each load-bearing claim in an answer gets a provenance verdict, adjudicated
+      by EXECUTION at a pinned SHA — never by docs. (Authority-misattribution:
+      an authoritative-looking doc can confirm a claim the code refutes; only
+      running the code has jurisdiction.) BOTH the tesser answer and the default
+      answer are scored by the same oracle, so the metric is a delta.
+    verdicts: [confirmed, stale, wrong, unverifiable]
+    weighting: "wrong (confident falsehood) is weighted worse than unverifiable (honest gap)"
+    bar:
+      wrong_tesser_le_wrong_default: true
+      wrong_tesser_target: 0
+      confirmed_coverage_tesser_ge_default: true
+    caveat: "biased sample — this measures CATCHABLE wrongness only; the dangerous uncaught cell is invisible (agent-overclaiming RCA / caught-errors-are-a-biased-sample). Do not read a clean score as proof of truth."
+    structural_insight: >
+      On simple, good-doc deps the default is already ~100% true, so TRUTH TIES
+      there and tesser's win must come entirely from FASTER + DIGESTIBLE. Truth
+      is where tesser pulls AHEAD only on drifted/complex deps. Report per-cell.
+    deterministic: "core executable claim-checks are deterministic; claims not reducible to a quick assertion are agent-adjudicated and must cite path:line@sha (auditable, not free of variance)"
+    prototype: "the 2026-06-11 evening red-team (refute a bare answer's numbered claims against source@SHA, score per-claim) — this is the seed of T6/T7"
+
+  # ---------------------------------------------------------------------------
+  digestible:
+    id: structure
+    name: "Digestibility — structural only (signal-to-noise)"
+    definition: >
+      Deterministic A/B pins on the SHAPE of the human-facing output. NO
+      functional-extraction test and NO completeness/answeredness scoring:
+      those assume what the function of the response is, which we must not bake
+      in (maintainer). Structure only.
+    checks:
+      no_internal_lexicon_leak:
+        rule: "the human-facing output must contain NONE of the forbidden internal-impl terms"
+        forbidden_lexicon_seed:        # SEED — needs maintainer's eye; doubles as tesser's output writing-style contract
+          - "run-grade"
+          - "truth-grade"
+          - "citable knowledge"
+          - "cold run"
+          - "digest"
+          - "provisional"
+          - "kind slug"
+          - "the skill"
+          - raw "⟦...⟧@sha" citation markup shown to a human
+        open: "forbidden_lexicon_final"  # see open_decisions
+        deterministic: true
+      citation_noise_ratio:
+        rule: "markup characters / content characters must be below a ceiling"
+        ceiling: null                  # MUST be set from measured real outputs, not guessed — see open_decisions
+        open: "noise_ratio_ceiling"
+        deterministic: true
+      answer_leads:
+        rule: "the direct answer to the asked question appears first, not buried under method/caveats"
+        deterministic: true
+      provisional_marker_hygiene:
+        rule: "borrowed verbatim from gs-structure-skill-test structure.test.ts — provisional/superseding markers well-formed and not leaked as human noise"
+        deterministic: true
+    deterministic: true
+
+win_condition:
+  per_cell: "tesser >= default on all three axes AND strictly better on at least one AND cold TTFA not worse than default (hard gate)"
+  goal: "tesser wins across the full dependency x question matrix, including simple deps"
+
+harness:
+  reuse_from: "gs-structure-skill-test"
+  mechanism: "runSkillTurns(prompts[]) — one persisted session via --session-id (turn 0) + --resume (later turns); deterministic structure pins run free under `bun test`; agent-scored truth axis gated (RUN_EVAL)"
+  isolation_required:
+    - "spawn default-agent runs with NO tesser skill on the path (the maintainer's tesserts/with | tesserts/without scoped-symlink pattern is the proven minimal rig)"
+    - "--disallowedTools Bash (or write isolation) on headless spawns — the harness once committed 9 junk scratch commits to main because `claude -p` inherited git perms + a global commit instruction"
+    - "freshOutDir() under tmpdir so writes can't touch the tracked tree"
+
+open_decisions:
+  - id: ttfa_baseline_rule
+    q: "How do we deterministically mark the DEFAULT agent's first substantive answer? It carries no first-answer marker (tesser does). Candidate: first assistant text with >= N content words not immediately trailing into a tool call; else hand-mark."
+    blocks: "a clean FASTER comparison"
+  - id: forbidden_lexicon_final
+    q: "The exact set of internal terms banned from human-facing output. Seed list above; needs maintainer's eye since it doubles as tesser's output writing-style contract."
+    blocks: "the no-leak digestibility check"
+  - id: noise_ratio_ceiling
+    q: "The actual citation-noise-ratio ceiling. Can only be set by measuring a few real tesser + default outputs, not guessed."
+    blocks: "the noise-ratio digestibility check"
+
+references:
+  prior_art:
+    - "gs-structure-skill-test: ~/workspace/devindex/.claude/skills/gs-structure-skill-test/ (SKILL.md, structure.test.ts, helpers.ts runSkillTurns)"
+    - "agent-overclaiming RCA: ~/workspace/brain/programs/agent-workflows/incidents/2026-06-05-agent-overclaiming-rca.md"
+    - "authority-misattribution: ~/workspace/brain/originals/authority-misattribution.md"
+    - "testing-agent-skills doctrine: ~/workspace/brain/concepts/testing-agent-skills.md"
+  source_session: "2026-06-11 evening course-correction (raw ac87d4d5) + 2026-06-12 plan-eng-review defining this scoreboard"

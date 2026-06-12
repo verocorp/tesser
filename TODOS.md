@@ -56,3 +56,14 @@ Deferred work with context. Items land here only via a review decision; each car
 - **Cons:** validate-digest must read trees at arbitrary commits (needs the clone present, slower); grammar version bump touches the pinned regex and every Type-A test.
 - **Context:** Prose is the deliberate v1 escape hatch — digest authors should not fight the validator. Trigger: the FIRST digest (T9 or cohort) that genuinely needs a cross-commit citation. Build it then, not before.
 - **Depends on / blocked by:** T8 validator existing; first real demand instance.
+
+## Experience scoreboard — settle 3 opens + post-dogfood revision pass (D39)
+
+- **What:** `scoreboard.yaml` (D39, drafted 2026-06-12 eng review) is the outcome-anchored measurement contract — three axes (FASTER = time-to-first-answer hard gate <10s ideal/≤30s; TRUER = provenance truth-delta vs the default scored by execution@SHA; DIGESTIBLE = structural-only s2n pins), default agent = null baseline, tesser must beat it across the FULL dep range including simple deps. Two pieces of follow-up land here.
+- **The 3 open sub-decisions (in `scoreboard.yaml` open_decisions):**
+  - `ttfa_baseline_rule` — how to deterministically mark the DEFAULT agent's first substantive answer (it has no marker; tesser does). Blocks a clean FASTER comparison.
+  - `forbidden_lexicon_final` — the exact set of internal terms banned from human-facing output (seed list in the file: `run-grade`, `truth-grade`, `citable knowledge`, `cold run`, `digest`, `provisional`, raw `⟦…⟧@sha`, …). Needs the maintainer's eye; doubles as tesser's output writing-style contract. Blocks the no-leak digestibility check.
+  - `noise_ratio_ceiling` — the citation-noise-ratio number, settable only by measuring a few real tesser + default outputs. Blocks the noise-ratio check.
+- **The revision pass (pre-committed by the maintainer):** lock now, but Chris will dogfood the tool a few times, then we revise the axes/bars against what actually works. So this is a *scheduled re-open*, not just open details.
+- **Why it matters:** the existing 109 gates test obedience to SKILL.md, not value. This is the only instrument that says whether tesser beats the default. T6/T7 (eval/e2e) get redefined to pin against it.
+- **Depends on / blocked by:** the 3 opens are independent and can be settled anytime; the revision pass is triggered by maintainer dogfooding. T6/T7 build should follow, not precede, the post-dogfood revision.
