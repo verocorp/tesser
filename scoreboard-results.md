@@ -15,8 +15,59 @@ will own the durable scorer).
 > how true, never overclaim; see `scoreboard.yaml` axes.calibrated). The #1
 > verdicts here are kept as **eval reference data** (they show the bare agent
 > was already mostly correct, which is *why* a #1 edge is thin) — not as the v1
-> metric. A re-score on the CALIBRATED metric (provenance-attached? gaps
-> surfaced? over/under/faithful?) is owed and not yet run.
+> metric. The CALIBRATED re-score is below.
+
+## CALIBRATED re-score (D40 metric, 2026-06-12)
+
+Scored the cells with BOTH columns — pyyaml and codeharness — on the v1 truth
+axis: Obligation A (provenance attached), Obligation B (faithful confidence),
+and the coverage map (gaps surfaced). A and the lexicon-collision are
+deterministic (citation counts, forbidden-term presence); gap-quality and B are
+read from the answers and cited, not asserted.
+
+| Answer | len | provenance (A) | calibration mechanism (B) | gaps surfaced |
+|---|---|---|---|---|
+| pyyaml default | 3,248 | **0 citations** | none — uniform confidence, no recency flag | 0 (overclaimed stale `yaml.load` as current) |
+| pyyaml tesser | 9,772 | **14** | 19 grade labels | 1 |
+| codeharness default | 10,912 | **0** | none | 5 — genuine + specific (placeholder model IDs, Python-only validation, `git add -A` blast radius) |
+| codeharness tesser | 29,404 | **34** | 17 grade labels | 5 (Gemini-key + Postgres gap, well-formed) |
+
+**A — Provenance attachment: decisive tesser win both cells (0→14, 0→34).** The
+bare agent attaches no checkable pointer to any claim, even when it read every
+file. tesser's one clear, genuine, **auto-mode-surviving** calibration edge —
+needs no execution, so the policy wall doesn't touch it.
+
+**Coverage map — roughly tied when the bare agent reads source.** On codeharness
+the bare agent produced real, specific, useful gap-flags matching tesser's in
+count and quality. Gap-surfacing is NOT tesser's differentiator; a competent
+default does it well whenever it inspects. tesser's edge here is
+"systematic/reliable vs ad-hoc," not "surfaces gaps the default misses." (On
+pyyaml the bare agent flagged nothing and overclaimed the stale `yaml.load`;
+tesser caught it — a small real B-win.)
+
+**B — Faithful confidence: tesser has the machinery, but it sabotages itself.**
+tesser conveys how-it-knows via explicit grades (`[provisional — inspect-grade]`,
+"stays docs/inspect-grade", "upgrade to run-grade") — strictly more systematic
+than the bare agent's uniform tone. **But every one of those terms (`run-grade`,
+`inspect-grade`, `docs-grade`, `provisional`) is on the forbidden-lexicon list.**
+tesser's calibration mechanism IS the digestibility violation; the axes that
+should align collide in the current implementation.
+
+**Verdict + rework shape.** tesser's CALIBRATED edge is real but concentrated in
+provenance ATTACHMENT, not gap-surfacing, and its B-mechanism currently fails
+DIGESTIBLE by construction. So the SKILL.md rework: (1) KEEP systematic per-claim
+provenance (the genuine, non-walled edge); (2) TRANSLATE grades into plain
+calibration language ("I read this at `models.py:12`" / "recalling from training,
+may be stale, didn't verify" / "couldn't run the LLM path — needs a Gemini key")
+— fixes Obligation B and the lexicon leak in one move, and couples to the open
+`forbidden_lexicon_final` decision; (3) DON'T sell gap-flagging as the
+differentiator — the default matches it. Honest meta-point: even reframed,
+tesser's edge over a default that reads source is "systematic provenance +
+calibration discipline," not "truer answers" — a real but more modest edge than
+"fast truth" promised, and the one that survives the permission wall.
+
+Provenance: same sessions as the default column above; tesser pyyaml `db8e01b9`,
+codeharness cold `722857bf`. Structural metrics via `/tmp/answer.py`.
 
 ## DEFAULT column (the bar tesser must beat)
 
