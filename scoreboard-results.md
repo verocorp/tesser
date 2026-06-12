@@ -7,8 +7,16 @@ codeharness (the only *external untrusted clone* — tesser's actual target).
 
 Scored deterministically from the session JSONL (`/tmp/score.py`, a throwaway
 probe in the spirit of the evening red-team's `tx.py`; not in the repo — T6/T7
-will own the durable scorer). TRUER verdicts are from the 2026-06-11 evening
-red-team, not recomputed here.
+will own the durable scorer).
+
+> **Note (D40, 2026-06-12):** the "TRUER" column below scores JTBD **#1**
+> (per-claim correctness vs an execution oracle) — which has since been
+> **deferred to v2**. The v1 truth axis is now **CALIBRATED** (JTBD #2 — convey
+> how true, never overclaim; see `scoreboard.yaml` axes.calibrated). The #1
+> verdicts here are kept as **eval reference data** (they show the bare agent
+> was already mostly correct, which is *why* a #1 edge is thin) — not as the v1
+> metric. A re-score on the CALIBRATED metric (provenance-attached? gaps
+> surfaced? over/under/faithful?) is owed and not yet run.
 
 ## DEFAULT column (the bar tesser must beat)
 

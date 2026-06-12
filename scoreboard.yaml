@@ -1,4 +1,4 @@
-# tesser experience scoreboard — spec-as-data (D39)
+# tesser experience scoreboard — spec-as-data (D39, truth axis reframed D40)
 #
 # WHAT THIS IS
 # The measurement contract for whether tesser delivers a better EXPERIENCE than
@@ -6,7 +6,10 @@
 # correction, verbatim): "What is the experience we're trying to deliver to devs?
 # Fast(er) truth. And I should probably say truth(er) too. ... It takes longer,
 # the output is essentially non-digestible for a human, and did it actually
-# improve on truthiness?" Three axes fall out: FASTER, TRUER, DIGESTIBLE.
+# improve on truthiness?" Three axes fall out: FASTER, CALIBRATED, DIGESTIBLE.
+# (The truth axis was named TRUER, then reframed + renamed CALIBRATED on
+# 2026-06-12 — D40: v1 scopes to "convey how true" / calibration; "make it true"
+# / run-grade-verified correctness defers to v2. See axes.calibrated.)
 #
 # WHY IT EXISTS
 # The 109 deterministic gates that already exist test whether an agent OBEYS
@@ -79,56 +82,52 @@ axes:
       note: "the rule is asymmetric by necessity; this asymmetry is a real design requirement on tesser, not a measurement convenience."
 
   # ---------------------------------------------------------------------------
-  truer:
-    id: truth_delta
-    name: "Provenance-scored truth delta vs the default"
+  calibrated:                           # RENAMED from 'truer' + REFRAMED 2026-06-12 (D40). v1 = JTBD #2; #1 deferred to v2.
+    id: calibration
+    name: "Calibrated — convey how true, never overclaim"
+    scope_decision: >
+      v1 scopes to JTBD #2 (convey how true a claim is) and DEFERS JTBD #1
+      (make/verify the claim true — run-grade-verified correctness) to v2. This
+      is Chris's already-locked decision in trust-a-claim-as-much-as-it-deserves
+      (2026-06-07), inherited here. Why: #2 makes being wrong SAFE (a wrong claim
+      only burns the dev if handed over as confident); #2 is cheap and bounded,
+      #1 is expensive and infinite (the unknown-unknowns hole); and #1 is exactly
+      what the host auto-mode wall blocks (codeharness: run-grade denied, the
+      answer unchanged — the differentiator was a no-op), so #1 pairs naturally
+      with the v2 sandboxing/hosted tier that would unblock it.
     definition: >
-      Each load-bearing claim in an answer gets a provenance verdict, adjudicated
-      by EXECUTION at a pinned SHA — never by docs. (Authority-misattribution:
-      an authoritative-looking doc can confirm a claim the code refutes; only
-      running the code has jurisdiction.) BOTH the tesser answer and the default
-      answer are scored by the same oracle, so the metric is a delta.
-    verdicts: [confirmed, stale, wrong, unverifiable]
-    weighting: "wrong (confident falsehood) is weighted worse than unverifiable (honest gap)"
+      The answer conveys how true it is, faithfully, in BOTH directions — never
+      claiming more certainty than the evidence licenses, never less. Formally
+      (findings-are-max-entropy-distributions): overstatement = claiming a
+      distribution with LESS entropy than your evidence supports. So a confident
+      3k-char dump is a formal overstatement, and a 3-bullet answer that flags
+      its gaps is the honest max-entropy distribution — a SHORTER answer can
+      score HIGHER on this axis than a longer one (the maintainer's exact point).
+    obligations:                        # both Chris-locked in trust-a-claim
+      A_provenance: "each load-bearing claim carries CHECKABLE provenance attached when stated — a pointer someone can verify, not a narrated story — at the grade actually reached (run > inspect > docs)."
+      B_faithful_confidence: "conveyed confidence never over- nor understates, and never conceals its own blind spot."
+    coverage_map:                       # the knowns / known-unknowns / unknown-unknowns the answer must surface
+      covered: "what was consulted, and the grade reached"
+      known_gap: "named, WITH a pointer — e.g. 'the LLM loop needs a Gemini key + Postgres I could not reach'; 'authoritative docs exist I did not read'"
+      unknown_gap: "the residual blind spot — flag its EXISTENCE (always knowable), never fake its SIZE (never knowable); do NOT chase it (chasing is a #1 move)."
     bar:
-      wrong_tesser_le_wrong_default: true
-      wrong_tesser_target: 0
-      confirmed_coverage_tesser_ge_default: true
-    caveat: "biased sample — this measures CATCHABLE wrongness only; the dangerous uncaught cell is invisible (agent-overclaiming RCA / caught-errors-are-a-biased-sample). Do not read a clean score as proof of truth."
-    structural_insight: >
-      On simple, good-doc deps the default is already ~100% true, so TRUTH TIES
-      there and tesser's win must come entirely from FASTER + DIGESTIBLE. Truth
-      is where tesser pulls AHEAD only on drifted/complex deps. Report per-cell.
-    deterministic: "core executable claim-checks are deterministic; claims not reducible to a quick assertion are agent-adjudicated and must cite path:line@sha (auditable, not free of variance)"
-    prototype: "the 2026-06-11 evening red-team (refute a bare answer's numbered claims against source@SHA, score per-claim) — this is the seed of T6/T7"
-    achieved_grade_vs_oracle:           # ADDED 2026-06-12 from the codeharness external-clone cell — load-bearing
-      distinction: >
-        Separate two truth-grades. (1) The SCOREBOARD ORACLE executes offline,
-        permissioned, to ADJUDICATE each claim — this is how the metric is
-        computed and it is always available. (2) tesser's PRODUCTION truth-grade
-        is the grade tesser can actually reach at answer time, and on its real
-        target it is CAPPED below run-grade.
-      production_truth_cap: >
-        On the codeharness external untrusted clone, tesser installed deps
-        (run-grade on deps) then was DENIED execution of the cloned code by the
-        host auto-mode permission classifier ('External/Untrusted Code'). So
-        tesser's production ceiling on untrusted external deps = inspect-grade,
-        and only in a permissive host posture can it reach run-grade. tesser
-        does NOT control that posture (design: no confinement of its own, does
-        nothing the host couldn't), and most devs default to auto-mode.
-      consequence: >
-        The default agent ADAPTIVELY INSPECTS when a repo is clonable (bare
-        codeharness cloned to /tmp and read every file). So on inspect-able
-        cells tesser and the default both reach inspect-grade and TRUTH TIES —
-        tesser's run-grade path to breaking the tie is policy-walled in the
-        common posture. And even the run-grade tesser COULD reach bought
-        near-nothing on codeharness (the two credentials-free scripts were the
-        lowest-stakes claims; the load-bearing behavior needed a Gemini key +
-        running Postgres, unreachable). Net: tesser's truth EDGE over the
-        default is structurally thin in v1. The path to 'better than default'
-        runs through FASTER + DIGESTIBLE; truth is occasional-bonus, not the
-        core differentiator the 'truth(er)' framing implied. (Observation
-        feeding the open target-redefinition, not a closed verdict.)
+      no_overclaim: "no load-bearing claim stated at higher certainty/grade than its provenance warrants"
+      no_underclaim: "no faithful claim hedged below its warrant (the 'trustworthy but useless' failure — miscalibration too)"
+      gaps_surfaced: "known gaps named with pointers; unknown-gap residue flagged, not chased"
+      provenance_attached: "every load-bearing claim has a checkable pointer at its actual grade"
+    edge_over_default: >
+      The bare agent flags gaps ad-hoc (codeharness: it caught the placeholder/
+      forward-dated model IDs, Python-only validation, and the `git add -A` blast
+      radius) but with NO grades and NO pinned provenance. tesser's calibration
+      edge is doing A+B SYSTEMATICALLY — and unlike the run-grade edge, it
+      survives auto-mode (needs no execution of untrusted code).
+    deferred_to_v2:
+      job: "JTBD #1 — make/verify the claim true: the per-claim correctness truth-delta vs an EXECUTION oracle (run > inspect > docs adjudicated by running the code at a pinned SHA; authority-misattribution: docs never adjudicate)."
+      why: "expensive + infinite (unknown-unknowns), and policy-walled for untrusted external clones in the common posture until sandboxing / a hosted tier lands."
+      oracle_note: "the scoreboard's OFFLINE oracle may still adjudicate #1 for our own eval reference (scoreboard-results.md keeps the 2026-06-11 red-team verdicts), but tesser-IN-PRODUCTION does not claim run-grade-correctness in v1."
+      biased_sample_caveat: "and #1 correctness can only ever measure CATCHABLE wrongness (agent-overclaiming RCA / caught-errors-are-a-biased-sample) — another reason #2 is the honest v1 target."
+    deterministic: "A (provenance attached + the pointer resolves) and the coverage-map buckets are structurally checkable; B's faithfulness has an agent-judged tail — certify the checker against a Chris-judged sample, then close the loop against outcomes (trust-a-claim)."
+    prototype: "the 2026-06-11 evening red-team scored #1 (confirmed/wrong); the v1 metric is A+B. Reuse its claim-extraction, swap the verdict to {overclaimed / faithful / underclaimed} + {provenance-attached?} + {gaps-surfaced?}."
 
   # ---------------------------------------------------------------------------
   digestible:
@@ -183,7 +182,7 @@ win_condition:
 
 harness:
   reuse_from: "gs-structure-skill-test"
-  mechanism: "runSkillTurns(prompts[]) — one persisted session via --session-id (turn 0) + --resume (later turns); deterministic structure pins run free under `bun test`; agent-scored truth axis gated (RUN_EVAL)"
+  mechanism: "runSkillTurns(prompts[]) — one persisted session via --session-id (turn 0) + --resume (later turns); deterministic structure pins run free under `bun test`; the agent-judged tail of the CALIBRATED axis (B's faithfulness) gated (RUN_EVAL)"
   isolation_required:
     - "spawn default-agent runs with NO tesser skill on the path (the maintainer's tesserts/with | tesserts/without scoped-symlink pattern is the proven minimal rig)"
     - "--disallowedTools Bash (or write isolation) on headless spawns — the harness once committed 9 junk scratch commits to main because `claude -p` inherited git perms + a global commit instruction"
@@ -201,6 +200,9 @@ references:
     - "agent-overclaiming RCA: ~/workspace/brain/programs/agent-workflows/incidents/2026-06-05-agent-overclaiming-rca.md"
     - "authority-misattribution: ~/workspace/brain/originals/authority-misattribution.md"
     - "testing-agent-skills doctrine: ~/workspace/brain/concepts/testing-agent-skills.md"
+    - "CALIBRATED axis (D40) — trust-a-claim-as-much-as-it-deserves: ~/workspace/brain/originals/trust-a-claim-as-much-as-it-deserves.md (JTBD #1/#2 split, Obligations A/B, the 3-bucket coverage map; Chris-locked 2026-06-07)"
+    - "CALIBRATED axis (D40) — formal twin: ~/workspace/brain/originals/findings-are-max-entropy-distributions.md (overstatement = lower entropy than evidence licenses)"
+    - "caught-errors-are-a-biased-sample: ~/workspace/brain/originals/caught-errors-are-a-biased-sample.md"
   source_session: "2026-06-11 evening course-correction (raw ac87d4d5) + 2026-06-12 plan-eng-review defining this scoreboard"
   scored_data: "scoreboard-results.md — 5 cells (pyyaml, coral, kinesis, caffeinate, codeharness) default column + tesser runs where available, scored 2026-06-12"
   codeharness_ab: "raw 722857bf (with/cold) · 43e3760d (with/warm) · cb07030a (without/bare); brain projects/tesser.md 2026-06-12 entry"

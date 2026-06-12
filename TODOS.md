@@ -59,7 +59,7 @@ Deferred work with context. Items land here only via a review decision; each car
 
 ## Experience scoreboard — settle 3 opens + post-dogfood revision pass (D39)
 
-- **What:** `scoreboard.yaml` (D39, drafted 2026-06-12 eng review) is the outcome-anchored measurement contract — three axes (FASTER = time-to-first-answer hard gate <10s ideal/≤30s; TRUER = provenance truth-delta vs the default scored by execution@SHA; DIGESTIBLE = structural-only s2n pins), default agent = null baseline, tesser must beat it across the FULL dep range including simple deps. Two pieces of follow-up land here.
+- **What:** `scoreboard.yaml` (D39, drafted 2026-06-12 eng review; truth axis reframed D40) is the outcome-anchored measurement contract — three axes (FASTER = time-to-first-answer hard gate <10s ideal/≤30s; **CALIBRATED** = JTBD #2 convey-how-true: provenance + faithful confidence + covered/known-gap/unknown-gap map, never overclaim — JTBD #1 run-grade correctness **deferred to v2**; DIGESTIBLE = structural-only s2n pins), default agent = null baseline, tesser must beat it across the FULL dep range including simple deps. Two pieces of follow-up land here.
 - **Open sub-decisions (in `scoreboard.yaml` open_decisions):**
   - ~~`ttfa_baseline_rule`~~ — **SETTLED 2026-06-12** from 5 scored cells: default = first ≥250-char block (preambles measured 90-135 chars, answers 2900+); tesser must emit a detectable first-answer marker (the rule misfires on its narration). Folded into `faster.baseline_rule`.
   - ~~`noise_ratio_ceiling`~~ — **SETTLED 2026-06-12**: replaced by a placement rule (zero raw `⟦…⟧` above the fold) + a `length_vs_default` check; raw ratio understated the problem ~10×. Folded into `digestible.checks`.
