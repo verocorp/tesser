@@ -87,6 +87,71 @@ export function parseSession(jsonlPath: string): SessionView {
   return { sessionId, userTurns, assistantBlocks };
 }
 
+/** One developer-facing turn: the question the dev asked and the assistant's
+ *  full reply to it (narration included), exactly as the dev read it. */
+export interface AnswerTurn {
+  /** The developer's question that opened this turn (flattened, trimmed). */
+  question: string;
+  /** Every assistant text block in this turn joined in order — the lead the
+   *  developer actually saw, method narration and all. */
+  answer: string;
+  /** The assistant text blocks in this turn, in order. */
+  blocks: AssistantBlock[];
+}
+
+/**
+ * User turns the HARNESS injects, not text the developer typed: the skill-load
+ * boilerplate, slash-command wrappers, background-task notifications, and
+ * local-command stdout. They must not start a new "answer" — the assistant text
+ * that follows them belongs to the developer's last real question (e.g. an
+ * "I'll use the X skill" stub + the skill's substantive answer are ONE answer).
+ */
+function isInjectedTurn(text: string): boolean {
+  const t = text.trimStart();
+  return (
+    t.startsWith("Base directory for this skill:") ||
+    t.startsWith("<task-notification>") ||
+    t.startsWith("[SYSTEM NOTIFICATION") ||
+    t.includes("<command-name>") ||
+    t.includes("<command-message>") ||
+    t.includes("<command-args>") ||
+    t.includes("<local-command-stdout>") ||
+    t.includes("[SYSTEM NOTIFICATION - NOT USER INPUT]")
+  );
+}
+
+/**
+ * Segment the session into (question → answer) turns from the primary question
+ * onward. A "question" is a REAL human user turn — tool-result turns flatten to
+ * "" and are skipped, so they don't create spurious boundaries. Each answer is
+ * every assistant text block between that question and the next human turn, in
+ * order, with the narration lead KEPT: the judge must evaluate what the dev read
+ * (an "I'll use the X skill" opener is a principle-1 violation, not preamble to
+ * strip). One turn for an overview, several for a deep dive — never one blob.
+ */
+export function answerTurns(view: SessionView, override?: number): AnswerTurn[] {
+  const qi = questionTurnIndex(view, override);
+  const startTs = view.userTurns[qi]?.ts;
+  const questions = view.userTurns.filter(
+    (t) => t.text.trim() !== "" && !isInjectedTurn(t.text) && (!startTs || t.ts >= startTs),
+  );
+  const turns: AnswerTurn[] = [];
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const nextTs = questions[i + 1]?.ts;
+    const blocks = view.assistantBlocks.filter(
+      (b) => b.ts >= q.ts && (!nextTs || b.ts < nextTs),
+    );
+    if (blocks.length === 0) continue;
+    turns.push({
+      question: q.text.trim(),
+      answer: blocks.map((b) => b.text).join("\n\n"),
+      blocks,
+    });
+  }
+  return turns;
+}
+
 /** Greeting turns that should not be mistaken for "the question". */
 const GREETING = /^(hi|hey|hello|yo|sup|good (morning|afternoon|evening))\b/i;
 

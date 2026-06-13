@@ -14,8 +14,8 @@
 
 import { spawn } from "node:child_process";
 import { resolveSession, defaultProjectsDir } from "./resolve.ts";
-import { parseSession, questionTurnIndex, type SessionView } from "./parse.ts";
-import { scoreSession, looksLikeNarration } from "./score.ts";
+import { parseSession, answerTurns } from "./parse.ts";
+import { scoreSession } from "./score.ts";
 import { buildJudgePrompt } from "./judge-rubric.ts";
 
 interface Args {
@@ -35,16 +35,6 @@ function parseArgs(argv: string[]): Args {
     else if (!t.startsWith("--") && !a.session) a.session = t;
   }
   return a;
-}
-
-/** The produced answer the dev saw = from the first non-narration >=250-char
- *  block to the end (the summary + close, minus the machinery preamble). */
-function extractAnswer(view: SessionView, questionTurn?: number): string {
-  const qi = questionTurnIndex(view, questionTurn);
-  const qTs = view.userTurns[qi]?.ts;
-  const after = view.assistantBlocks.filter((b) => !qTs || b.ts >= qTs);
-  const idx = after.findIndex((b) => b.chars >= 250 && !looksLikeNarration(b.text));
-  return after.slice(idx >= 0 ? idx : 0).map((b) => b.text).join("\n\n");
 }
 
 function askClaude(prompt: string): Promise<string> {
@@ -106,11 +96,19 @@ async function main() {
   }
 
   const view = parseSession(sessionPath);
-  const answer = extractAnswer(view, args.questionTurn);
-  console.error(`[judge] grading ${answer.length}-char produced answer via claude -p …`);
+  const turns = answerTurns(view, args.questionTurn);
+  if (turns.length === 0) {
+    console.error("error: no gradable answer turns found (is this a tesser session?)");
+    process.exit(2);
+    return;
+  }
+  const totalChars = turns.reduce((n, t) => n + t.answer.length, 0);
+  console.error(
+    `[judge] grading ${turns.length} answer turn(s), ${totalChars} chars total, via claude -p …`,
+  );
 
   console.log("\n" + structuralFloor(sessionPath, args.questionTurn));
-  const verdict = await askClaude(buildJudgePrompt(answer));
+  const verdict = await askClaude(buildJudgePrompt(turns));
   console.log("\nLLM JUDGE (Obligation B — faithful confidence + the 8 principles):\n");
   console.log(verdict);
 
@@ -124,8 +122,10 @@ async function main() {
       "harsh. Quote the answer text. Return a short markdown list of corrections, or 'NO",
       "REFUTATION — verdict holds' if it is sound.",
       "",
-      "=== ANSWER ===",
-      answer,
+      "=== CONVERSATION ===",
+      turns
+        .map((t, i) => `--- TURN ${i + 1}${t.question ? ` (asked: ${t.question.slice(0, 200)})` : ""} ---\n${t.answer}`)
+        .join("\n\n"),
       "",
       "=== JUDGE VERDICT ===",
       verdict,

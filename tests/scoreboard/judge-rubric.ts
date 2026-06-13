@@ -42,19 +42,56 @@ export const KNOWN_FAILURE_MODES: FailureMode[] = [
   { mode: "Inconsistency: grading the same pattern differently across answers.", correction: "Apply each principle's test literally and identically. State the rule you applied, not how you feel about this answer." },
 ];
 
-/** Build the judge prompt for one produced answer. */
-export function buildJudgePrompt(answer: string): string {
+/** One (question → answer) turn the judge grades. */
+export interface JudgeTurn {
+  question: string;
+  answer: string;
+}
+
+/**
+ * Build the judge prompt. Accepts either a single answer string (legacy / single
+ * shot) or the turn-by-turn conversation. Multi-turn is the real path: the judge
+ * must see the session the way the developer read it — narration leads kept, each
+ * answer separate — so principle 1 catches an "I'll use the X skill" opener and
+ * principle 2 separates a too-long single answer from cross-turn repetition.
+ */
+export function buildJudgePrompt(input: string | JudgeTurn[]): string {
+  const turns: JudgeTurn[] =
+    typeof input === "string" ? [{ question: "", answer: input }] : input;
+  const multi = turns.length > 1;
   const rubric = PRINCIPLES.map((p) => `${p.n}. ${p.name.toUpperCase()} — ${p.test}`).join("\n");
   const failures = KNOWN_FAILURE_MODES.map(
     (f, i) => `${i + 1}. ${f.mode}\n   CORRECT FOR IT: ${f.correction}`
   ).join("\n");
+  const convo = turns
+    .map((t, i) => {
+      const header = t.question
+        ? `=== TURN ${i + 1} — THE DEVELOPER ASKED: ${JSON.stringify(t.question.slice(0, 300))} ===`
+        : `=== ANSWER UNDER JUDGMENT ===`;
+      return `${header}\n${t.answer}`;
+    })
+    .join("\n\n");
   return [
     "You are a strict quality judge for developer-facing answers about software dependencies.",
     "The developer is busy and wants to quickly understand an unfamiliar dependency and place",
-    "it in their mental model. Judge ONLY the answer text below, against the rubric.",
+    "it in their mental model.",
+    "",
+    multi
+      ? "Below is the FULL developer-facing conversation, turn by turn, EXACTLY as the developer read it — method narration, progress lines, and citation markup all included. Judge the developer's experience across the whole session, not one isolated paragraph."
+      : "Judge ONLY the answer text below, against the rubric.",
     "",
     "RUBRIC — score each PASS / PARTIAL / FAIL with one short quoted span as evidence:",
     rubric,
+    "",
+    "HOW TO APPLY two principles that depend on the whole conversation:",
+    "- Principle 1 (answer-first): inspect the LITERAL FIRST LINES of EACH turn's answer.",
+    "  If a turn opens with method/process narration ('I'll use the X skill', 'Cloning…',",
+    "  'Finding the source and reading the structure…') BEFORE saying anything useful, that",
+    "  is a violation — quote the opener. Do NOT excuse it as a preamble or skip past it.",
+    "- Principle 2 (right-sized length): judge BOTH (a) is any single answer longer than the",
+    "  question warranted, AND (b) do LATER turns repeat content already delivered — restated",
+    "  theses, re-offered next steps, a disclaimer re-run every turn? Cross-turn repetition is",
+    "  the more common failure; name the specific repeated span and how many turns carry it.",
     "",
     "KNOWN_FAILURE_MODES — these are YOUR reliable biases as an LLM judge. Correct for each;",
     "do NOT generalize this into distrusting everything (that makes you useless):",
@@ -62,11 +99,15 @@ export function buildJudgePrompt(answer: string): string {
     "",
     "OUTPUT — return ONLY:",
     "1. a markdown table: | # | Principle | Verdict | Evidence (quote) | Why |",
-    "2. a line 'WEAKEST PRINCIPLE: <n — name>' (you must name one, even if the answer is strong)",
+    "   (one row per principle, judged across the whole conversation)",
+    "2. a line 'WEAKEST PRINCIPLE: <n — name>' (you must name one, even if the session is strong)",
     "3. a line 'BIGGEST PROBLEM a busy dev would have:'",
     "4. a line 'WHAT'S MISSING:'",
+    "5. a line 'CROSS-TURN REDUNDANCY: <quote one span the session restates turn-to-turn, or 'none'>'",
+    "6. a line 'RECURRING NOISE: <a caveat/narration/markup that recurs — the run-vs-read hedge,",
+    "   raw ⟦…⟧@sha citation markup, machinery progress lines — quote one + how many turns it",
+    "   appears in, or 'none'>'",
     "",
-    "=== ANSWER UNDER JUDGMENT ===",
-    answer,
+    convo,
   ].join("\n");
 }
