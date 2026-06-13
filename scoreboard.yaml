@@ -148,8 +148,10 @@ axes:
     checks:
       no_internal_lexicon_leak:
         rule: "the human-facing output must contain NONE of the forbidden internal-impl terms"
-        forbidden_lexicon_seed:        # SEED — needs maintainer's eye; doubles as tesser's output writing-style contract
+        forbidden_lexicon:             # FINAL (D41, 2026-06-12) — was forbidden_lexicon_seed; doubles as tesser's output writing-style contract. Tests pin against this list (scorer + SKILL.md sync gate).
           - "run-grade"
+          - "inspect-grade"            # + D41: the full grade ladder is internal vocabulary
+          - "docs-grade"               # + D41
           - "truth-grade"
           - "citable knowledge"
           - "cold run"
@@ -157,8 +159,7 @@ axes:
           - "provisional"
           - "kind slug"
           - "the skill"
-          - raw "⟦...⟧@sha" citation markup shown to a human
-        open: "forbidden_lexicon_final"  # see open_decisions
+          - raw "⟦...⟧@sha" citation markup shown to a human   # handled by the citation-markup regex, not literal match
         deterministic: true
       citation_placement:               # SETTLED 2026-06-12 (was noise_ratio_ceiling, open) — placement rule, not a global ratio
         rule: "ZERO raw ⟦...⟧@sha citation markup above the fold / in the first answer. Citations live in an appendix or are revealed on demand. A global ratio threshold was rejected: measured tesser ratio was only ~0.04 and still felt non-digestible, because placement (citations in the lead) not ratio is what hurts."
@@ -189,10 +190,14 @@ harness:
     - "freshOutDir() under tmpdir so writes can't touch the tracked tree"
 
 open_decisions:
-  # ttfa_baseline_rule + noise_ratio_ceiling SETTLED 2026-06-12 from 5 scored cells (folded into the axes above).
-  - id: forbidden_lexicon_final
-    q: "The exact set of internal terms banned from human-facing output. Seed list above; needs maintainer's eye since it doubles as tesser's output writing-style contract. Measured leak counts so far: 18 (pyyaml-tesser), 12 (codeharness-cold), 6 (codeharness-warm)."
-    blocks: "the no-leak digestibility check"
+  # All three draft opens are now settled:
+  #   ttfa_baseline_rule    — SETTLED 2026-06-12 (folded into faster.baseline_rule)
+  #   noise_ratio_ceiling   — SETTLED 2026-06-12 (replaced by citation_placement + length_vs_default)
+  #   forbidden_lexicon_final — SETTLED 2026-06-12 (D41): the FINAL list is digestible.checks.no_internal_lexicon_leak.forbidden_lexicon
+  #                             above — the grade ladder (run/inspect/docs/truth-grade), provisional, cold run, digest,
+  #                             citable knowledge, kind slug, "the skill", + raw citation markup. The scorer + the SKILL.md
+  #                             sync gate (structure.test.ts) both pin against it. The post-dogfood revision pass remains the
+  #                             one open lever (revision_trigger above), not a per-decision blocker.
 
 references:
   prior_art:

@@ -155,13 +155,15 @@ reproduces the numbers above — TTFA 19.6s / 3,248-char answer (pyyaml default)
 14 provenance pointers + narration-lead + ≥1 gap (pyyaml tesser) — pinned as GOLD
 tests against the real A/B sessions (`score.test.ts`).
 
-**One divergence the durable scorer settles:** the lexicon-leak count for
-pyyaml-tesser is **24** occurrences over the full human-facing output (run-grade×8,
-provisional×8, digest×6, truth-grade×1, cold run×1), not the **18** the lost probe
-published. The durable definition (case-insensitive literal-term occurrences across
-all assistant text) supersedes the probe; the hard-0 gate fires identically either
-way. The 12/6 codeharness counts were probe-era and should be re-derived with the
-durable scorer before they are cited again.
+**One divergence the durable scorer settles:** under the FINAL lexicon (D41) the
+leak count for pyyaml-tesser is **27** occurrences over the full human-facing
+output (run-grade×8, provisional×8, digest×6, docs-grade×2, inspect-grade×1,
+truth-grade×1, cold run×1), not the **18** the lost probe published (the pre-D41
+seed list, which omitted inspect-grade/docs-grade, gave 24). The durable
+definition (case-insensitive literal-term occurrences across all assistant text)
+supersedes the probe; the hard-0 gate fires identically either way. The 12/6
+codeharness counts were probe-era and should be re-derived with the durable
+scorer before they are cited again.
 
 **Two items surfaced for a maintainer decision (not changed unilaterally):**
 1. **First-answer MARKER** — the scorer looks for `axes.faster.first_answer_marker`

@@ -43,7 +43,9 @@ export function loadScoreboard(path = join(repoRoot, "scoreboard.yaml")): Scoreb
   const bar = faster.bar ?? {};
   const leak =
     doc?.axes?.digestible?.checks?.no_internal_lexicon_leak ?? {};
-  const seed: string[] = leak.forbidden_lexicon_seed ?? [];
+  // forbidden_lexicon is the FINAL list (D41); forbidden_lexicon_seed is the
+  // pre-D41 name, kept as a fallback so an older spec still loads.
+  const seed: string[] = leak.forbidden_lexicon ?? leak.forbidden_lexicon_seed ?? [];
   // The seed list mixes literal terms with one DESCRIPTION of the raw citation
   // markup ("raw ⟦...⟧@sha citation markup shown to a human"). Split it: literal
   // terms go to the lexicon scan, the markup is handled by the citation regex.

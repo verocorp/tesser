@@ -301,11 +301,12 @@ describe.skipIf(!haveGold)("GOLD: reproduce scoreboard-results.md (real sessions
     expect(s.digestible.answerLeads).toBe(false); // narration lead
     expect(s.calibrated.gapsSurfaced).toBeGreaterThanOrEqual(1);
     expect(s.faster.note).toMatch(/MISFIRES/); // no marker yet → flagged fallback
-    // CANONICAL DIVERGENCE: the durable lexicon count is 24 occurrences over the
-    // full human-facing output; scoreboard-results.md published 18 from the
-    // (now-lost) throwaway probe. The durable definition supersedes it; the
-    // hard-0 gate fires identically either way (any leak = fail).
-    expect(s.digestible.lexiconLeakTotal).toBe(24);
+    // CANONICAL DIVERGENCE: the durable lexicon count is 27 occurrences over the
+    // full human-facing output under the FINAL lexicon (D41 added inspect-grade
+    // ×1 + docs-grade ×2 to the pre-D41 seed's 24); scoreboard-results.md
+    // published 18 from the (now-lost) throwaway probe. The durable definition
+    // supersedes it; the hard-0 gate fires identically either way (any leak).
+    expect(s.digestible.lexiconLeakTotal).toBe(27);
   });
 
   it("pyyaml: tesser does NOT win the cell (loses FASTER + DIGESTIBLE)", () => {

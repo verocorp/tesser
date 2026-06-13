@@ -56,6 +56,17 @@ const digestSchema = yaml.load(
 const logSchema = yaml.load(
   readFileSync(join(repoRoot, "log-schema.yaml"), "utf8")
 ) as any;
+const scoreboard = yaml.load(
+  readFileSync(join(repoRoot, "scoreboard.yaml"), "utf8")
+) as any;
+
+/** The FINAL forbidden-lexicon literal terms (D41), parsed from scoreboard.yaml
+ *  as data. The raw-citation-markup entry (contains ⟦) is not a literal term —
+ *  it is enforced by a separate shape check — so it is filtered out here. */
+const forbiddenLexicon: string[] = (
+  scoreboard?.axes?.digestible?.checks?.no_internal_lexicon_leak
+    ?.forbidden_lexicon ?? []
+).filter((t: unknown): t is string => typeof t === "string" && !t.includes("⟦"));
 
 // ---- SKILL.md + stub detection ---------------------------------------------
 
@@ -167,6 +178,54 @@ describe("gate 4: SKILL.md byte budget", () => {
       `SKILL.md is ${skillBytes.length} bytes; budget is ${max} (contract.yaml skill_md.max_bytes)`
     ).toBeLessThanOrEqual(max);
   });
+});
+
+// Gate 6 — internal-lexicon containment (D41). The leak axis's free Type-B ring
+// (testing-agent-skills principles 3 + 10): catch a jargon-leak regression for
+// FREE, every merge, instead of waiting on an expensive model run.
+//
+// (a) Negative pin — the exact class we removed: a square-bracketed grade-label
+// template (`[provisional — inspect-grade, widget@…]`) the agent copies verbatim
+// into human output. None may reappear. Runs always (a stub trivially passes).
+describe("gate 6a: no bracketed grade-label template in SKILL.md (D41)", () => {
+  it("contains no bracketed grade-label example (agents copy it into output)", () => {
+    const m = skillText.match(/\[[^\]\n]*(provisional|[a-z]+-grade)[^\]\n]*\]/i);
+    expect(
+      m,
+      `SKILL.md must not show a bracketed grade-label example (agents copy it into human output). Found: ${m?.[0]}`
+    ).toBeNull();
+  });
+});
+
+// (b) Sync pin — the playbook's Output-contract ban must document EVERY term in
+// scoreboard.yaml's final forbidden_lexicon (spec-as-data: scorer and playbook
+// draw the ban from one source). Drift in either direction fails here.
+describe.skipIf(SKILL_IS_STUB)(`gate 6b: Output-contract documents the full forbidden lexicon (D41)${note}`, () => {
+  const rule = (() => {
+    const m = skillText.match(
+      /never leak the internal vocabulary[\s\S]*?(?=\n- \*\*|\n#{2,3} )/
+    );
+    return m ? m[0] : "";
+  })();
+
+  it("SKILL.md carries the Output contract's plain-language no-leak rule", () => {
+    expect(skillText.includes("Output contract")).toBe(true);
+    expect(rule.length, "the plain-language no-leak rule must be present").toBeGreaterThan(0);
+  });
+
+  it("the scoreboard forbidden_lexicon parses to a non-empty literal-term list", () => {
+    expect(forbiddenLexicon.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it.each(forbiddenLexicon.map((t) => [t]))(
+    'the Output-contract ban lists the forbidden term "%s" (scoreboard.yaml sync)',
+    (term) => {
+      expect(
+        rule.includes(term),
+        `scoreboard.yaml forbids "${term}" but SKILL.md's Output-contract ban does not list it`
+      ).toBe(true);
+    }
+  );
 });
 
 // Gate 5 — self-update pin (D23): the contract:self-update anchor, the
