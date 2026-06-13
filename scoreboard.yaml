@@ -158,7 +158,10 @@ axes:
           - "digest"
           - "provisional"
           - "kind slug"
-          - "the skill"
+          # "the skill" REMOVED (D41 amendment, 2026-06-13): too generic — it
+          # false-positives on plain English (a default-agent answer said "the
+          # skill" of a dependency and scored a spurious leak). `tesser` already
+          # catches the real offender, "the tesser skill".
           - raw "⟦...⟧@sha" citation markup shown to a human   # handled by the citation-markup regex, not literal match
         deterministic: true
       citation_placement:               # SETTLED 2026-06-12 (was noise_ratio_ceiling, open) — placement rule, not a global ratio

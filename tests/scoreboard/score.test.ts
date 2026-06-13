@@ -39,6 +39,7 @@ import {
   loadScoreboard,
   looksLikeNarration,
   countGapMarkers,
+  countOverclaimMarkers,
   type Role,
   type SessionScore,
 } from "./score.ts";
@@ -117,14 +118,24 @@ describe("FASTER", () => {
     expect(f.note).toBeUndefined();
   });
 
-  it("tesser without a marker: warns the 250-char fallback may misfire", () => {
+  it("tesser: a real (non-narration) first answer stops the clock with NO warning", () => {
     const p = synth([
       { role: "user", text: "what does this do and how do I set it up?", t: 0 },
-      { role: "assistant", text: ans(300), t: 8 },
+      { role: "assistant", text: "I'll use the tesser skill. Cold run.", t: 4 }, // narration, skipped
+      { role: "assistant", text: "It parses YAML. " + ans(300), t: 8 },
     ]);
     const f = scoreFaster(parseSession(p), "tesser", spec);
-    expect(f.method).toBe("250char");
-    expect(f.note).toMatch(/MISFIRES/);
+    expect(f.ttfaSeconds).toBe(8); // the real answer block, not the narration
+    expect(f.note).toBeUndefined();
+  });
+
+  it("tesser: warns ONLY when every >=250 block reads as narration", () => {
+    const p = synth([
+      { role: "user", text: "what does this do and how do I set it up?", t: 0 },
+      { role: "assistant", text: "I'll use the tesser skill for this. " + ans(300), t: 6 },
+    ]);
+    const f = scoreFaster(parseSession(p), "tesser", spec);
+    expect(f.note).toMatch(/process narration/);
   });
 
   it("tesser with a configured marker: clock stops at the marker block", () => {
@@ -273,11 +284,29 @@ const NARRATION_BIAS = [
   ["collision: 'logs to stdout' (not 'log opened/id')", "It logs to stdout by default; configure a handler to change that."],
 ] as const;
 
-// Gap-surfacing language that SHOULD count (real + real-pattern).
+// Gap-surfacing language that SHOULD count (real + real-pattern). The last three
+// are the default-agent caveats the scorer MISSED on the gds/pi runs (F4).
 const GAP_RECALL = [
   ["pyyaml real: 'did not build or run them'", "These ship with libyaml support per the README, but I did not build or run them."],
   ["pattern: stale-from-training, unverified", "I'm recalling this from training, so it may be stale; I didn't verify it against the source."],
   ["pattern: couldn't run, needs a key", "I couldn't run the LLM loop — it needs a Gemini key I don't have."],
+  ["gds default real: 'note worth flagging — personal fork'", "One note worth flagging: taika-st/gds-agent is a personal fork; the upstream is neo4j-contrib/gds-agent."],
+  ["pi default real: 'caveat — does not include'", "One important caveat: Pi does not include a built-in permission system for restricting filesystem access."],
+  ["pi default real: 'couldn't fully verify' (adverb)", "A few things I couldn't fully verify from the README alone."],
+] as const;
+
+// Absolute/superlative phrasing that SHOULD flag as a possible overclaim (F5 —
+// the 'instant' overstatement Chris caught on the gds run).
+const OVERCLAIM_RECALL = [
+  ["gds tesser real: 'a follow-up will be instant'", "I've cached this analysis, so a follow-up will be instant."],
+  ["gds tesser real: 'the next question is instant'", "Now let me record what I learned so the next question is instant."],
+  ["pattern: 'seamless' + 'guaranteed'", "Setup is seamless and guaranteed to work."],
+] as const;
+
+// Plain text with no absolutes — must NOT flag.
+const OVERCLAIM_BIAS = [
+  ["plain answer", "It parses YAML and emits it; use safe_load to read a document."],
+  ["measured claim", "It is fast for most workloads and handles large files well."],
 ] as const;
 
 // Confident text that must NOT count as a tesser gap.
@@ -314,6 +343,21 @@ describe("heuristic certification: gaps (countGapMarkers)", () => {
     "BIAS counts zero on confident text — %s",
     (_label, text) => {
       expect(countGapMarkers(text)).toBe(0);
+    }
+  );
+});
+
+describe("heuristic certification: overclaim (countOverclaimMarkers)", () => {
+  it.each(OVERCLAIM_RECALL.map(([l, t]) => [l, t]))(
+    "RECALL flags an absolute/superlative — %s",
+    (_label, text) => {
+      expect(countOverclaimMarkers(text)).toBeGreaterThanOrEqual(1);
+    }
+  );
+  it.each(OVERCLAIM_BIAS.map(([l, t]) => [l, t]))(
+    "BIAS counts zero on measured text — %s",
+    (_label, text) => {
+      expect(countOverclaimMarkers(text)).toBe(0);
     }
   );
 });
@@ -394,7 +438,12 @@ describe.skipIf(!haveGold)("GOLD: reproduce scoreboard-results.md (real sessions
     expect(s.calibrated.provenanceCount).toBe(14); // matches scoreboard-results
     expect(s.digestible.answerLeads).toBe(false); // narration lead
     expect(s.calibrated.gapsSurfaced).toBeGreaterThanOrEqual(1);
-    expect(s.faster.note).toMatch(/MISFIRES/); // no marker yet → flagged fallback
+    // F1: TTFA now finds the REAL first answer (block #7, 79.4s) by skipping the
+    // narration blocks, instead of misfiring on the "Cold run — Preflight" block
+    // at 29s. No spurious warning when a real answer is isolated.
+    expect(s.faster.firstAnswerBlockIndex).toBe(7);
+    expect(s.faster.ttfaSeconds).toBeCloseTo(79.4, 1);
+    expect(s.faster.note).toBeUndefined();
     // CANONICAL DIVERGENCE: the durable lexicon count is 27 occurrences over the
     // full human-facing output under the FINAL lexicon (D41 added inspect-grade
     // ×1 + docs-grade ×2 to the pre-D41 seed's 24); scoreboard-results.md

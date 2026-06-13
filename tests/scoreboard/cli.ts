@@ -86,6 +86,7 @@ function fmtAxes(s: SessionScore): string {
     `  CALIBRATED`,
     `    provenance (A)  ${c.provenanceCount} checkable pointers attached`,
     `    gaps surfaced   ${c.gapsSurfaced}  (coverage-map proxy)`,
+    `    overclaim       ${c.overclaimMarkers}  (advisory — absolute/superlative phrasing, e.g. "instant")`,
     `    confidence (B)  not scored — ${c.bNote.split("—")[0].trim()}`,
   ]
     .filter((l) => l !== "")

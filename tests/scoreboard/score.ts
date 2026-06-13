@@ -98,15 +98,41 @@ export function looksLikeNarration(text: string): boolean {
 /** Gap-surfacing language (CALIBRATED coverage map proxy). Rough by design;
  *  the coverage-map quality has an agent-judged tail per scoreboard.yaml. */
 const GAP_LANGUAGE = [
-  /could(n'?t| not) (run|verify|reach|access|execute|build)/i,
+  // an optional adverb may sit between "couldn't"/"didn't" and the verb
+  // ("couldn't fully verify" was a real miss).
+  /could(n'?t| not) (\w+ )?(run|verify|reach|access|execute|build)/i,
+  /did(n'?t| not) (\w+ )?(verify|run|test|check|build|execute)/i,
   /(needs?|requires?) a\b[^.]{0,40}\b(key|token|credential|password)/i,
-  /did(n'?t| not) (verify|run|test|check|build|execute)/i,
   /(may be|might be|possibly) (stale|outdated|out of date|wrong)/i,
   /\bnot (verified|tested|confirmed|run)\b/i,
   /unable to (run|verify|reach|access|build)/i,
   /\bfrom (training|memory)\b/i,
   /without (running|executing|verifying|building)/i,
+  // authority / completeness caveats the default surfaced and we missed
+  /\bcaveat\b/i,
+  /\bworth flagging\b/i,
+  /\b(personal fork|is a fork|it'?s a fork|a fork of)\b/i,
+  /does(n'?t| not) (include|document|support|guarantee|enforce|restrict)/i,
 ];
+
+/** Absolute / superlative phrasing that tends to OVERCLAIM (e.g. "instant",
+ *  "guaranteed", "seamlessly"). An advisory CALIBRATED signal and the first
+ *  precursor to the Obligation-B judge — flags candidates for review, not a
+ *  hard gate (a dependency may legitimately describe an "instant" feature). */
+const OVERCLAIM_MARKERS = [
+  /\bin an instant\b/i,
+  /\binstant(ly|aneous(ly)?)?\b/i,
+  /\bguarantee[ds]?\b/i,
+  /\bseamless(ly)?\b/i,
+  /\beffortless(ly)?\b/i,
+  /\btrivially\b/i,
+  /\bnever fails?\b/i,
+  /\balways works?\b/i,
+];
+
+export function countOverclaimMarkers(text: string): number {
+  return OVERCLAIM_MARKERS.reduce((n, re) => n + countMatches(text, re), 0);
+}
 
 /** Count gap-surfacing phrases (CALIBRATED coverage-map proxy). The heuristic
  *  and its recall/bias fixtures both call this. ADVISORY until calibrated
@@ -157,14 +183,20 @@ export function scoreFaster(
     method = "marker";
   }
   if (!hit) {
-    // Default's canonical rule, and tesser's fallback when no marker is found.
-    hit = after.find(({ b }) => b.chars >= 250);
+    // The first SUBSTANTIVE answer = the first >=250-char block that is NOT
+    // process narration. Skipping narration (looksLikeNarration) finds the real
+    // answer instead of misfiring on a long "Cold run — Preflight…" block, so a
+    // real first answer no longer triggers a spurious warning.
+    hit = after.find(({ b }) => b.chars >= 250 && !looksLikeNarration(b.text));
     method = "250char";
-    if (role === "tesser") {
-      note =
-        "no first-answer marker found; fell back to the >=250-char rule, which " +
-        "MISFIRES on tesser process-narration (scoreboard.yaml faster.baseline_rule). " +
-        "Treat this TTFA as an upper-confidence ceiling, hand-verify if it gates a decision.";
+    if (!hit) {
+      // Every >=250 candidate looks like narration — fall back and flag it.
+      hit = after.find(({ b }) => b.chars >= 250);
+      if (hit) {
+        note =
+          "every >=250-char block reads as process narration — the first real " +
+          "answer could not be isolated; TTFA may be off, hand-verify.";
+      }
     }
   }
 
@@ -250,6 +282,7 @@ export function scoreDigestible(
 export interface CalibratedScore {
   provenanceCount: number; // Obligation A — checkable pointers attached
   gapsSurfaced: number; // coverage-map proxy (agent-judged quality tail)
+  overclaimMarkers: number; // advisory B-precursor — absolute/superlative phrasing
   bScored: false;
   bNote: string;
 }
@@ -259,6 +292,7 @@ export function scoreCalibrated(view: SessionView): CalibratedScore {
   return {
     provenanceCount: countMatches(full, CITATION),
     gapsSurfaced: countGapMarkers(full),
+    overclaimMarkers: countOverclaimMarkers(full),
     bScored: false,
     bNote:
       "Obligation B (faithful confidence) has an agent-judged tail — not scored " +
