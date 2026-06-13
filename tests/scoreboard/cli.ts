@@ -3,14 +3,21 @@
 // Score a dogfood session against scoreboard.yaml, or compare a tesser run
 // against a default-agent run for the win-condition verdict.
 //
-//   npm run score -- <session.jsonl>                       # score one (assumes tesser)
-//   npm run score -- <session.jsonl> --role default        # score a default-agent run
-//   npm run score -- <tesser.jsonl> --vs <default.jsonl>    # pair → win verdict
-//   npm run score -- <session.jsonl> --question-turn 1      # override question turn
-//   npm run score -- <session.jsonl> --json                 # machine-readable
+// SESSION accepts a session id (full UUID or a short prefix), a `<uuid>.jsonl`
+// filename, or a full path. Ids are resolved under ~/.claude/projects/** (the
+// per-project session store), so you can pass what `claude` shows you:
+//
+//   npm run score -- db8e01b9                               # score by id prefix
+//   npm run score -- db8e01b9 --role default                # a default-agent run
+//   npm run score -- db8e01b9 --vs 617bdfbb                 # pair → win verdict
+//   npm run score -- db8e01b9 --question-turn 1             # override question turn
+//   npm run score -- db8e01b9 --json                        # machine-readable
+//   npm run score -- ./path/to/session.jsonl                # explicit path still works
+//   options: --projects-dir <dir>  (or env CLAUDE_PROJECTS_DIR)
 //
 // Runs on stock Node 22+/24 (type-stripping, no build, no extra deps).
 
+import { resolveSession, defaultProjectsDir } from "./resolve.ts";
 import {
   scoreSession,
   scorePair,
@@ -25,6 +32,7 @@ interface Args {
   vsRole: Role;
   questionTurn?: number;
   vsQuestionTurn?: number;
+  projectsDir?: string;
   json: boolean;
 }
 
@@ -37,20 +45,23 @@ function parseArgs(argv: string[]): Args {
     else if (t === "--vs-role") a.vsRole = argv[++i] as Role;
     else if (t === "--question-turn") a.questionTurn = Number(argv[++i]);
     else if (t === "--vs-question-turn") a.vsQuestionTurn = Number(argv[++i]);
+    else if (t === "--projects-dir") a.projectsDir = argv[++i];
     else if (t === "--json") a.json = true;
-    else if (!t.startsWith("--") && !a.session) a.session = t;
     else if (t === "-h" || t === "--help") {
       a.session = undefined;
       break;
     }
+    else if (!t.startsWith("--") && !a.session) a.session = t;
   }
   return a;
 }
 
 const USAGE = `tesser scoreboard scorer
-  node tests/scoreboard/cli.ts <session.jsonl> [--role tesser|default]
-  node tests/scoreboard/cli.ts <tesser.jsonl> --vs <default.jsonl>
-  options: --question-turn N  --vs-question-turn N  --json`;
+  node tests/scoreboard/cli.ts <session-id|path> [--role tesser|default]
+  node tests/scoreboard/cli.ts <tesser-id|path> --vs <default-id|path>
+  SESSION: a session id (UUID or prefix), <uuid>.jsonl, or a path; ids resolve
+           under ~/.claude/projects/** (override: --projects-dir / CLAUDE_PROJECTS_DIR)
+  options: --question-turn N  --vs-question-turn N  --projects-dir <dir>  --json`;
 
 function fmtAxes(s: SessionScore): string {
   const f = s.faster;
@@ -85,14 +96,27 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.session) {
     console.log(USAGE);
-    process.exit(args.session === undefined && process.argv.length > 2 ? 0 : 2);
+    process.exit(process.argv.length > 2 ? 0 : 2);
   }
 
-  const tesser = scoreSession(args.session!, args.role, {
+  const projectsDir = args.projectsDir ?? defaultProjectsDir();
+  let sessionPath: string;
+  let vsPath: string | undefined;
+  try {
+    sessionPath = resolveSession(args.session, projectsDir);
+    if (sessionPath !== args.session) console.error(`[resolved] ${args.session} → ${sessionPath}`);
+    vsPath = args.vs ? resolveSession(args.vs, projectsDir) : undefined;
+    if (vsPath && vsPath !== args.vs) console.error(`[resolved] ${args.vs} → ${vsPath}`);
+  } catch (e) {
+    console.error(`error: ${(e as Error).message}`);
+    process.exit(2);
+  }
+
+  const tesser = scoreSession(sessionPath, args.role, {
     questionTurn: args.questionTurn,
   });
 
-  if (!args.vs) {
+  if (!vsPath) {
     if (args.json) console.log(JSON.stringify(tesser, null, 2));
     else {
       console.log(`\n${args.role} run`);
@@ -101,7 +125,7 @@ function main() {
     return;
   }
 
-  const def = scoreSession(args.vs, args.vsRole, {
+  const def = scoreSession(vsPath, args.vsRole, {
     questionTurn: args.vsQuestionTurn,
   });
   const verdict = scorePair(tesser, def);
