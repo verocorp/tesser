@@ -27,7 +27,7 @@ Over-building a low-altitude question is the failure that makes a developer's ey
 The machinery is invisible; the answer is everything. tesser is graded against the developer's *default agent*, which answers fast, in plain language, leading with the point. Every human-facing emission obeys:
 
 - **Answer first, then stop.** Your first emission is the answer — for an overview, ~4 short paragraphs (what it does → how it works → how to set it up) or ≤3 bullets. No status line before it ("I'll use the tesser skill", "Self-update done", "Pinned at …", "Cold run", "Preflight"). And no machinery tail after it: never narrate "recording what I learned", "validated", "moving it into place", "I've cached this", or a `~/.tesser` inventory. The answer ends at the close below, not at a housekeeping log.
-- **Plain language — never leak the internal vocabulary.** `run-grade`, `inspect-grade`, `docs-grade`, `truth-grade`, `citable knowledge`, `provisional`, `digest`, `cold run`, `kind slug`, `drift check`, and "the skill" are tesser's *internal* model — never in front of the developer ("drift check" especially means nothing to them). Convey calibration in English: "I ran it and saw 8", "read it at `src/lib.py:12`, didn't run it", "recalling from training, unverified". Never overclaim: no "instant", "guaranteed", "seamless" — a cached follow-up is *faster*, not instant.
+- **Plain language — never leak the internal vocabulary.** `run-grade`, `inspect-grade`, `docs-grade`, `truth-grade`, `citable knowledge`, `provisional`, `digest`, `cold run`, `kind slug`, `drift check`, `sleuth`, and "the skill" are tesser's *internal* model — never in front of the developer (the dev never hears the name of the background check). Convey calibration in English: "I ran it and saw 8", "read it at `src/lib.py:12`, didn't run it", "recalling from training, unverified". Never overclaim: no "instant", "guaranteed", "seamless" — a cached follow-up is *faster*, not instant.
 - **Place it and bound it.** Give a mental-model anchor ("it's like X, but for Y") so the dev can map it to what they know, and say plainly what it does FOR them AND what it does NOT do — "it runs the algorithm; it doesn't choose which algorithm for you".
 - **Citations live in the map, not the chat.** Raw `⟦…⟧@sha12` markup is never shown to the developer and never a provenance block; surface a file:line inline only when the locus *is* the answer ("where is it set?" → `src/lib.py:12`).
 - **Close on the dev's next job.** End with what you're confident of, what's still unknown, and 2–3 SPECIFIC next things they might want — named as their jobs ("want the full list of the 49 tools and what each does?"), never as tesser's tasks ("verify a tool end-to-end").
@@ -48,16 +48,16 @@ Identity is the normalized clone URL: host + full namespace path, lowercased, `.
 
 ## The overview is two beats: answer now, ground in the background
 
-For an overview ("what is this / how does it work") the developer waits for nothing, watches no machinery:
+For an overview ("what is this / how does it work") the developer waits for nothing and watches no machinery. **In the main conversation you do exactly two things** — everything in §1–§9 is the background subagent's job, never a foreground step you run first:
 
-1. **Kick off the grounding in the background, then answer immediately from what you already know.** Spawn a subagent (`run_in_background`) — the *sleuth* — that runs steps 1–6 silently (self-update, log, resolve, clone or reuse, survey, write and validate the map) and returns the grounded summary; the dev sees one quiet "looking into it" line, no tool calls. The grounding **never blocks the answer**: while it works, you write the answer from what you already know, calibrated (what you're sure of vs only recalling). Under 30 seconds — answer first, close on the dev's next job.
-2. **When the sleuth returns, stay silent unless it changes the answer.** If it confirms what you said, **say nothing** — a clean check the dev never asked for is noise. Speak again **only to correct** it — a superseding follow-up — when the source differs, the repo has moved, or you can sharpen a claim you hedged. Citations live in the map, never the chat.
+1. **Spawn the background subagent, then answer immediately from what you already know.** Your *first* action launches a subagent (`run_in_background: true`) that runs §1–§9 silently and returns the grounded summary; your *first words* are the answer itself, written from what you already know, calibrated (sure of vs only recalling). Do NOT run `git pull`, open the log, or check for a map in the main thread first — those are the subagent's. No "I'll use the tesser skill", no "looking into it", no progress lines. The grounding **never blocks the answer**: under 30 seconds, answer first, close on the dev's next job.
+2. **When the subagent returns, stay silent unless it changes the answer.** If it confirms what you said, **say nothing** — and never *pre-announce* a running check ("grounding in the background", "I'll correct it if it differs" is the exact noise to cut). Speak again **only to correct** — a superseding follow-up — when the source differs, the repo moved, or you can sharpen a hedge. Citations live in the map, never the chat; the developer never hears the machinery's words ("sleuth", "map", "drift", "grounding").
 
-(Exception: the build-and-upgrade path in §6/§8 stays in the main conversation — at set-it-up / does-it-work altitude the run *is* the answer.)
+(Exception: §6/§8's build path stays in the main conversation — at set-it-up / does-it-work altitude the run *is* the answer.)
 
 ## 1. Self-update (contract:self-update)
 
-At invocation, quietly run `git pull --ff-only` in this skill's own directory, bounded by a hard 5-second time limit. Fail-silent: offline, timed out, diverged, or no `.git` directory (zip install) — skip it and proceed on the current checkout. The pull never blocks an answer and never merges; an update applies from the next invocation.
+Quietly run `git pull --ff-only` in this skill's directory, bounded by a hard 5-second time limit. Fail-silent: offline, timed out, diverged, or no `.git` (zip install) — skip and proceed on the current checkout. The pull never blocks an answer; an update applies from the next invocation.
 
 ## 2. Open the log (contract:invocation-log)
 
@@ -65,34 +65,34 @@ At invocation, quietly run `git pull --ff-only` in this skill's own directory, b
 ID=$(scripts/log-invocation open --question "<the developer's question, verbatim>" [--repo <url-if-known>])
 ```
 
-Keep `ID` for the finalize at the end. The log is the experiment's primary instrument: local-only JSONL at `~/.tesser/log.jsonl`, no call-home, plainly disclosed in the README. `invocation_source` (seeded|self) is derived by the script — never ask. If the developer walks away mid-run, leave the record opened: an unfinalized record is honest data, never force-finalize it.
+Keep `ID` for the finalize. The log is local-only JSONL at `~/.tesser/log.jsonl`, no call-home. `invocation_source` (seeded|self) is derived by the script — never ask. If the developer walks away mid-run, leave the record opened: an unfinalized record is honest data, never force-finalize it.
 
 ## 3. Consult the map before cold work (contract:digest-consult)
 
 Resolve the dependency to a canonical clone URL first — a package name resolves through its registry (npm, crates.io, PyPI, pkg.go.dev…) to the source repo; the resolved URL is what gets logged, not the input. Then check for an existing map at the identity path: local `~/.tesser/digests/<host>/<org-path>/<repo>@*.md` first, then bundled `digests/...` in this skill repo. If several shas match one identity, prefer the one whose pinned clone already exists under `~/.tesser/clones/`, else the most recent `ts`.
 
-On a hit, the map IS the grounding — the sleuth serves from it instead of cloning cold:
+On a hit, the map IS the grounding — the subagent serves from it instead of cloning cold:
 
-1. **Answer from what you already know**, then let the sleuth confirm against the map's frontmatter (repo, sha, env, commands with exit codes, kind, grade); citations stay in the map.
-2. In the same background pass, an `ls-remote` compares the repo's current head against the pinned sha (if you clone for it, pin that sha, not the remote head, or the clone diverges from the map's citations). If it still matches, **say nothing**. Only if the repo has moved do you surface a short superseding note — "moved N commits past what I read". Offline? Say so only if it bears on the answer.
+1. **Answer from what you already know**, then let the subagent confirm against the map's frontmatter (repo, sha, env, commands with exit codes, kind, grade); citations stay in the map.
+2. In the same background pass, an `ls-remote` compares the repo's current head against the pinned sha (if you clone for it, pin that sha, not the remote head). If it still matches, **say nothing**. Only if the repo has moved do you surface a short superseding note — "moved N commits past what I read". Offline? Say so only if it bears on the answer.
 3. Finalize (§9) with `--outcome completed --digest <served-path> --digest-sha256 <hex64>` plus the sha and kind. `--digest` marks the run a cache hit (`consulted_cached_digest`) — use it ONLY here, never for a map this run just persisted (§9).
 
 Serve follow-ups from the map and the clone; any claim neither can ground goes through the cold path below.
 
 ## 4. Preflight: classify, state the ceiling
 
-Before any work, classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (an internal call, not said aloud) — and when the kind caps how far you can verify, tell the developer up front, in plain words, what you'll be able to confirm by running versus only describe from docs: an SDK of a hosted service lets you run the client calls but only describe the server's behavior, disclosed; a closed hosted service you can only describe, said plainly; heavy-infra gets whatever subset genuinely ran. All verification is credentials-free — never ask for or use the developer's credentials. Reaching a kind-capped ceiling is a completed run, not a failure.
+Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (internal, not said aloud). When the kind caps how far you can verify, tell the developer up front what you can confirm by running versus only describe from docs: an SDK lets you run the client but only describe the server; a closed hosted service you can only describe; heavy-infra gets whatever subset ran. All verification is credentials-free — never ask for or use the developer's credentials. A kind-capped ceiling is a completed run, not a failure.
 
 ## 5. Pin or reuse (contract:idempotent-reuse)
 
-Check `~/.tesser/clones/<host>/<org-path>/<repo>/`. If it exists, reuse it at its pinned SHA — never pull, never chase upstream; re-pin only on explicit developer request or missing/corrupt state. Otherwise clone (`--depth 1` is fine for large repos), record `git rev-parse HEAD` as the pin, and use that SHA in every citation.
+Check `~/.tesser/clones/<host>/<org-path>/<repo>/`. If it exists, reuse it at its pinned SHA — never pull, never chase upstream; re-pin only on explicit developer request or missing/corrupt state. Otherwise clone (`--depth 1` ok), record `git rev-parse HEAD` as the pin, and use that SHA in every citation.
 
 Also check `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/state`: a previous session may have finished a build after it ended. `state: built` means you can verify against the existing artifacts and serve run-grade immediately — the recovery path for an upgrade lost with a dead session.
 
 ## 6. Ground the answer, then upgrade if the altitude calls for it (contract:provisional-first)
 
-1. **Survey just enough to ground the answer**: README, top-level structure, `git log -1`, then the files the question implicates — read what it needs, not a fixed checklist. For an overview, run this survey in the sleuth subagent (see "The overview is two beats") so the developer never sees it.
-2. **Answer first from what you already know**, sharpening from the source as the sleuth grounds it; say how you know each claim ("recalling, unverified" vs "read it at `src/lib.py:12`" vs "ran it, saw …"). For an overview that knowledge answer is the *delivered* answer — close on the dev's next job.
+1. **Survey just enough to ground the answer**: README, top-level structure, `git log -1`, then the files the question implicates — read what it needs, not a fixed checklist. For an overview, run this survey in the background subagent (see "The overview is two beats") so the developer never sees it.
+2. **Answer first from what you already know**, sharpening from the source as the subagent grounds it; say how you know each claim ("recalling, unverified" vs "read it at `src/lib.py:12`" vs "ran it, saw …"). For an overview that knowledge answer is the *delivered* answer — close on the dev's next job.
 3. **Only when the altitude is set-it-up or does-it-work**, launch the build in the background, **in the main conversation** (`run_in_background: true`), output tee'd to `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/build.log`; write `state: building`. Use whatever the repo declares — `cargo build --release`, `go build ./...`, `npm ci`, `make`, `pip install -e .` — tesser is process-general. Never delegate this path to a subagent that may return before the build notification: a returned subagent has no output channel left, and the upgrade is structurally lost.
 4. **Keep serving.** Answer follow-ups from source. Never foreground-wait or poll-sleep on a compile. If asked how the build is going, read `build.log` and report.
 
@@ -116,7 +116,7 @@ The build-completion notification is a system message, **not user input** — ne
 
 ## 9. Persist the map, finalize the log — silently (contract:invocation-log)
 
-This is bookkeeping the developer never sees: do not narrate any of it. After a cold run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at its full identity path inside the build dir — `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md` — so the validator's path check sees the same tail it will have once moved. Then validate:
+This is bookkeeping the developer never sees: do not narrate any of it. After a cold run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at its full identity path inside the build dir — `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md` — matching the moved path the validator checks. Then validate:
 
 ```
 scripts/validate-digest <staged.md> --clone <clone-dir>
