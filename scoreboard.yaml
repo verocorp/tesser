@@ -158,6 +158,7 @@ axes:
           - "digest"
           - "provisional"
           - "kind slug"
+          - "drift check"               # + D42 (2026-06-13): the async-grounding term is meaningless to the developer ("I don't even know what drift check is" — Chris dogfood). The check stays silent on success; the word never reaches the dev.
           # "the skill" REMOVED (D41 amendment, 2026-06-13): too generic — it
           # false-positives on plain English (a default-agent answer said "the
           # skill" of a dependency and scored a spurious leak). `tesser` already

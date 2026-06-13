@@ -228,6 +228,65 @@ describe.skipIf(SKILL_IS_STUB)(`gate 6b: Output-contract documents the full forb
   );
 });
 
+// Gate 7 — two-beat overview + machinery silence (Chris dogfood 2026-06-13).
+// The mosh/gds dogfood showed the overview path was loud: foreground bash before
+// the answer, a bash block after it, and a no-op "drift check: no drift —
+// everything is current" success report. The excellent shape Chris specified is
+// two beats: (1) kick off the grounding in the background + answer immediately
+// from knowledge; (2) the grounding stays SILENT on success, speaking again only
+// to correct. These gates pin that shape into the playbook so it can't regress.
+describe.skipIf(SKILL_IS_STUB)(`gate 7: two-beat overview machinery-silence (D42)${note}`, () => {
+  it("the overview answers from the model's own knowledge first (not after the clone)", () => {
+    expect(
+      /from what you (already )?know/i.test(skillText),
+      'SKILL.md must instruct answering the overview from knowledge first ("from what you already know")'
+    ).toBe(true);
+  });
+
+  it("grounding runs in the background and never blocks the answer", () => {
+    expect(
+      /never blocks the answer/i.test(skillText),
+      'SKILL.md must state the background grounding "never blocks the answer"'
+    ).toBe(true);
+  });
+
+  it("the grounding is SILENT on success — says nothing when it confirms", () => {
+    expect(
+      /confirms[\s\S]{0,80}(say nothing|stays? silent|no follow-up)/i.test(skillText),
+      'SKILL.md must instruct silence when the background grounding confirms the answer'
+    ).toBe(true);
+  });
+
+  it("the grounding speaks again only to correct — a superseding follow-up", () => {
+    expect(
+      /(only )?to correct[\s\S]{0,80}supersed|supersed[\s\S]{0,80}(differ|moved|stale|wrong)/i.test(skillText),
+      "SKILL.md must instruct a superseding correction only when the source differs"
+    ).toBe(true);
+  });
+
+  it("NO no-op success announcement: never 'no drift' / 'drift-unchecked' in dev-facing flow", () => {
+    expect(
+      /no drift/i.test(skillText),
+      'SKILL.md must not instruct emitting a "no drift" success report (kill the no-op confirmation)'
+    ).toBe(false);
+    expect(
+      /drift-unchecked/i.test(skillText),
+      'SKILL.md must not label a served answer "drift-unchecked" (internal status the dev never sees)'
+    ).toBe(false);
+  });
+
+  it("citations live in the map, never a provenance block in the chat", () => {
+    expect(
+      /provenance (block|list)/i.test(skillText) === false || /never .*provenance (block|list)/i.test(skillText),
+      "SKILL.md must not instruct a visible provenance block/list — citations live in the map"
+    ).toBe(true);
+    expect(
+      /citations live in the (map|digest)/i.test(skillText),
+      'SKILL.md must say citations live in the map, not the chat'
+    ).toBe(true);
+  });
+});
+
 // Gate 5 — self-update pin (D23): the contract:self-update anchor, the
 // literal --ff-only, and the time-bound wording, consistent with the
 // self-update clause statement read as data.
