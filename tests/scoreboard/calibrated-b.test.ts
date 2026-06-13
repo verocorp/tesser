@@ -1,55 +1,61 @@
 // CALIBRATED — Obligation B (faithful confidence): the agent-judged ring.
 //
-// scoreboard.yaml axes.calibrated.B_faithful_confidence: "conveyed confidence
-// never over- nor understates, and never conceals its own blind spot." Unlike
-// Obligation A (provenance attachment — a deterministic citation count) and the
-// gap proxy, B has an agent-judged tail: whether a stated confidence MATCHES the
-// evidence is a judgment, not a regex. So this ring is an LLM-as-judge, and per
-// testing-agent-skills.md it obeys two hard rules:
+// The rubric is no longer [FILL] — it's defined in judge-rubric.ts from Chris's
+// dogfood principles (2026-06-13). Two layers, per testing-agent-skills:
 //
-//   1. The rubric + threshold ARE the quality definition — there is no default.
-//      Until a human writes the rubric, this test FAILS FAST WITH NO MODEL CALL
-//      ([FILL] guard). It must never silently pass (that would certify B with no
-//      bar) and never burn a model run against an undefined target.
-//   2. Judge the PRODUCED answer, not dictated text. The judge grades the
-//      confidence calibration of an answer tesser actually emitted (read from a
-//      session transcript), never a snippet hand-written into a fixture.
+//   - FREE (this file, runs in `npm test`): Type-A checks that the rubric is
+//     well-formed and the prompt actually carries the principles + the
+//     KNOWN_FAILURE_MODES self-corrections. No model call.
+//   - LIVE (on demand, NOT here): `npm run judge -- <session-id>` spawns
+//     `claude -p` to grade a PRODUCED answer, with the deterministic gates
+//     printed alongside as the non-foolable floor. A model call, so it never
+//     runs in the free suite.
 //
-// STATUS: scaffold. RUN_EVAL-gated so the free suite never reaches it. The
-// rubric is [FILL] — the maintainer sets it from tesserts/ dogfooding (what does
-// an over/underclaim actually look like in a real tesser answer?). When set,
-// wire the judge call where marked and add a hand-graded calibration sample
-// (the judge itself must be pinned, per the doctrine's 18-fixture precedent).
+// The judge grades the artifact, not dictated text; the KNOWN_FAILURE_MODES block
+// is the "never trust yourself in THESE ways" correction (targeted + structural,
+// never global — a judge that distrusts everything is trustworthy-but-useless).
 
 import { describe, it, expect } from "vitest";
+import {
+  PRINCIPLES,
+  KNOWN_FAILURE_MODES,
+  buildJudgePrompt,
+} from "./judge-rubric.ts";
 
-const RUN_EVAL = !!process.env.RUN_EVAL;
+describe("CALIBRATED Obligation B — rubric is well-formed (free)", () => {
+  it("defines the 8 dogfood principles, numbered 1..8", () => {
+    expect(PRINCIPLES).toHaveLength(8);
+    expect(PRINCIPLES.map((p) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    for (const p of PRINCIPLES) {
+      expect(p.name.length, `principle ${p.n} needs a name`).toBeGreaterThan(0);
+      expect(p.test.length, `principle ${p.n} needs a test`).toBeGreaterThan(20);
+    }
+  });
 
-// The Obligation-B rubric. [FILL] until the maintainer defines the bar.
-// Shape when filled (grade a PRODUCED answer 1-5 against the coverage map):
-//   5 = every load-bearing claim's stated confidence matches its evidence;
-//       blind spot disclosed; neither over- nor underclaimed.
-//   1 = a load-bearing claim asserted well above (or hedged well below) its
-//       warrant, or a blind spot concealed.
-const RUBRIC = "[FILL]";
-const THRESHOLD = 4; // on the 1-5 scale; placeholder until RUBRIC is set.
+  it("carries no [FILL] sentinel (the bar is set)", () => {
+    const blob = JSON.stringify(PRINCIPLES) + JSON.stringify(KNOWN_FAILURE_MODES);
+    expect(blob.includes("[FILL]")).toBe(false);
+  });
 
-describe.skipIf(!RUN_EVAL)("CALIBRATED Obligation B — faithful-confidence judge (RUN_EVAL)", () => {
-  it("the rubric is defined before any model call ([FILL] guard, fails fast)", () => {
-    expect(
-      RUBRIC.includes("[FILL]"),
-      "Define the Obligation-B rubric before running the judge. It must grade a " +
-        "PRODUCED tesser answer's confidence calibration (no overclaim / no " +
-        "underclaim / blind-spot disclosed) on a 1-5 scale against the coverage " +
-        "map. No model call happens until this is set. Set it from tesserts/ " +
-        "dogfooding, then pin the judge itself with a hand-graded sample."
-    ).toBe(false);
+  it("enumerates the judge's known failure modes, each with a correction", () => {
+    expect(KNOWN_FAILURE_MODES.length).toBeGreaterThanOrEqual(4);
+    for (const f of KNOWN_FAILURE_MODES) {
+      expect(f.mode.length).toBeGreaterThan(10);
+      expect(f.correction.length).toBeGreaterThan(10);
+    }
+    const modes = KNOWN_FAILURE_MODES.map((f) => f.mode.toLowerCase()).join(" ");
+    expect(modes).toMatch(/lenien|sycophan/); // the one we already observed on gds
+  });
 
-    // UNREACHABLE until RUBRIC is set (the guard above throws first). When the
-    // rubric lands, wire the judge here:
-    //   const answer = loadProducedAnswer(session);      // the emitted answer
-    //   const verdict = await judgeFaithfulConfidence(answer, RUBRIC);
-    //   expect(verdict.score).toBeGreaterThanOrEqual(THRESHOLD);
-    expect(THRESHOLD).toBeGreaterThanOrEqual(1);
+  it("the built prompt grades the PRODUCED answer and includes the failure-mode block", () => {
+    const prompt = buildJudgePrompt("SOME PRODUCED ANSWER TEXT");
+    expect(prompt).toContain("SOME PRODUCED ANSWER TEXT");
+    expect(prompt).toContain("KNOWN_FAILURE_MODES");
+    expect(prompt).toContain("ANSWER UNDER JUDGMENT");
+    // evidence-required: the prompt must demand a quote per verdict
+    expect(prompt.toLowerCase()).toMatch(/quote|evidence/);
+    // targeted, not global: the prompt must forbid distrusting everything
+    expect(prompt.toLowerCase()).toMatch(/not generalize|distrusting everything|useless/);
+    for (const p of PRINCIPLES) expect(prompt.toUpperCase()).toContain(p.name.toUpperCase());
   });
 });
