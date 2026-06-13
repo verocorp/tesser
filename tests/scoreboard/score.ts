@@ -76,13 +76,24 @@ const GREETING_ONLY = /^(hi|hey|hello|yo|sup)\b[\s!.,]*$/i;
 const NARRATION = [
   /\btesser\b/i, // naming the tool/process in the lead, not the answer
   /\blog opened\b/i,
+  /\blog id\b/i, // "Log ID is 6829f63b…" — announcing the instrument
   /\bpinned at\b/i,
   /\bfound a (local )?digest\b/i,
+  /\bno digest\b/i, // "No digest, no clone — cold path" — narrating the cold branch
   /\bself-update\b/i,
   /\bi have a validated digest\b/i,
   /^\s*(cold run|preflight)\b/i,
+  /\bcold path\b/i,
   /\bclassification\b/i,
 ];
+
+/** Does this text LEAD with tesser machinery instead of the answer? The
+ *  answer_leads heuristic (digestible) and its recall/bias fixtures both call
+ *  this — keep the one definition. ADVISORY until calibrated against the
+ *  maintainer's tesserts/ dogfooding (see score.test.ts certification block). */
+export function looksLikeNarration(text: string): boolean {
+  return NARRATION.some((re) => re.test(text));
+}
 
 /** Gap-surfacing language (CALIBRATED coverage map proxy). Rough by design;
  *  the coverage-map quality has an agent-judged tail per scoreboard.yaml. */
@@ -96,6 +107,13 @@ const GAP_LANGUAGE = [
   /\bfrom (training|memory)\b/i,
   /without (running|executing|verifying|building)/i,
 ];
+
+/** Count gap-surfacing phrases (CALIBRATED coverage-map proxy). The heuristic
+ *  and its recall/bias fixtures both call this. ADVISORY until calibrated
+ *  (quality of the coverage map has an agent-judged tail; see Obligation B). */
+export function countGapMarkers(text: string): number {
+  return GAP_LANGUAGE.reduce((n, re) => n + countMatches(text, re), 0);
+}
 
 function fullOutput(view: SessionView): string {
   return view.assistantBlocks.map((b) => b.text).join("\n");
@@ -211,8 +229,7 @@ export function scoreDigestible(
     (b) => !GREETING_ONLY.test(b.text.trim()),
   );
   const isNarration =
-    !!firstSubstantive &&
-    NARRATION.some((re) => re.test(firstSubstantive.text));
+    !!firstSubstantive && looksLikeNarration(firstSubstantive.text);
   return {
     lexiconLeakTotal: total,
     lexiconLeakTerms: terms,
@@ -241,7 +258,7 @@ export function scoreCalibrated(view: SessionView): CalibratedScore {
   const full = fullOutput(view);
   return {
     provenanceCount: countMatches(full, CITATION),
-    gapsSurfaced: GAP_LANGUAGE.reduce((n, re) => n + countMatches(full, re), 0),
+    gapsSurfaced: countGapMarkers(full),
     bScored: false,
     bNote:
       "Obligation B (faithful confidence) has an agent-judged tail — not scored " +

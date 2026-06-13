@@ -1,15 +1,29 @@
 // tesser scoreboard scorer (T7) — tests.
 //
-// Two rings:
+// Rings (testing-agent-skills pyramid — these are Type-C: the scorer is a
+// deterministic binary, tested like normal software, no model runs):
 //   1. SYNTHETIC units (always run under `npm test`) — lock each axis primitive
-//      against a hand-built transcript, so the scorer's definitions are pinned
-//      independent of any machine's session history.
-//   2. GOLD reproduction (skipped when the real sessions are absent) — the
-//      durable scorer must reproduce the numbers scoreboard-results.md published
-//      from the throwaway /tmp probes: that match is what certifies the port.
+//      against a hand-built transcript, independent of any machine's history.
+//   2. HEURISTIC certification (recall + bias, from real sessions) — answer_leads
+//      and gaps are regex APPROXIMATIONS of a judgment; this block pins their
+//      behavior on real should-flag (recall) and should-stay-quiet (bias) text
+//      drawn from the on-disk sessions. ADVISORY, not gating (below).
+//   3. GOLD reproduction (skipped when the real sessions are absent) — the
+//      durable scorer reproduces the published numbers; that match certifies
+//      the port. Where it diverges from the throwaway probe, the durable
+//      definition WINS and is documented (the lexicon count — see the gold block).
 //
-// Where the durable scorer and the throwaway diverge, the durable definition
-// WINS and is documented here (the lexicon count — see the gold block).
+// WHAT THIS SUITE DOES NOT PROVE (principle 8 — the ownership map):
+//   - NOT that SKILL.md is good. It pins the scorer's MATH, not the playbook.
+//   - NOT that tesser beats the default in production. That needs a live A/B
+//     run + judgment; this suite never runs a model.
+//   - NOT that the forbidden_lexicon / bars are the RIGHT thresholds. Those are
+//     taste/contract calls (D41 etc.), certified by the maintainer, not here.
+//   - NOT the heuristic ACCURACY. answer_leads/gaps are calibrated against the
+//     maintainer's tesserts/ dogfooding, not pre-labeled fixtures — so their
+//     outputs are ADVISORY (the win-condition warns, never red-bars, on them)
+//     until that calibration lands. CALIBRATED Obligation B is owned by
+//     calibrated-b.test.ts (RUN_EVAL, [FILL]-guarded).
 
 import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
@@ -23,6 +37,8 @@ import {
   scoreCalibrated,
   scorePair,
   loadScoreboard,
+  looksLikeNarration,
+  countGapMarkers,
   type Role,
   type SessionScore,
 } from "./score.ts";
@@ -222,6 +238,84 @@ describe("CALIBRATED", () => {
     expect(c.bScored).toBe(false);
     expect(c.bNote).toMatch(/agent-judged/);
   });
+});
+
+// --- HEURISTIC certification (recall + bias, from real on-disk sessions) ----
+//
+// answer_leads (looksLikeNarration) and gaps (countGapMarkers) are regex
+// APPROXIMATIONS of a judgment. Recall = real text that SHOULD flag; bias =
+// real text that should STAY QUIET. Fixtures are drawn byte-faithfully from the
+// actual sessions (pyyaml/codeharness tesser leads; pyyaml/kinesis/coral default
+// openers) so the heuristic is pinned against reality, not paraphrase. These
+// pin the heuristic's OUTPUT, not its accuracy — accuracy is calibrated by the
+// maintainer's tesserts/ dogfooding (the win-condition treats them as advisory).
+
+// Narration leads that SHOULD flag (real tesser openings).
+const NARRATION_RECALL = [
+  ["pyyaml: 'job for the tesser skill'", "This looks like a job for the `tesser` skill — you're asking about an unfamiliar dependency (PyYAML) and want run-grade answers on what it does."],
+  ["pyyaml: 'work through the tesser protocol'", "I'll work through the tesser protocol: self-update, open the log, check for an existing digest, then clone/build/verify PyYAML."],
+  ["pyyaml: 'Self-update done'", "Self-update done. Now let me open the invocation log and resolve PyYAML to its canonical repo."],
+  ["pyyaml: 'Cold run — Preflight/classification'", "Cold run — no digest, no clone. \n\n**Preflight / classification:** PyYAML is a `clonable-library`."],
+  ["pyyaml: 'Pinned at <sha>'", "Pinned at `d51d8a138f72`. Let me survey the structure to ground a provisional answer."],
+  ["codeharness: 'what the tesser skill is built for'", "This is exactly what the `tesser` skill is built for — answering what a dependency does and how it works."],
+  ["codeharness: 'follow the tesser protocol'", "I'll follow the tesser protocol. Let me start: self-update, open the invocation log, and check for an existing digest."],
+  ["codeharness: 'No digest — cold path — Log ID'", "No digest, no clone — cold path. Log ID is `6829f63b`. Let me clone and pin it."],
+  ["codeharness: 'Cloned and pinned at <sha>'", "Cloned and pinned at `9af90f68bf74`. Let me survey the structure to ground a provisional answer."],
+] as const;
+
+// Real default-agent openers that LEAD with the answer — must NOT flag.
+const NARRATION_BIAS = [
+  ["pyyaml default opener", "You're asking about **PyYAML**, the standard Python library for working with YAML in Python."],
+  ["kinesis default opener", "Got it — AWS Kinesis. Here's the practical rundown. Kinesis is AWS's family of services for real-time streaming data."],
+  ["coral default opener", "Here's the rundown on **Coral** (`withcoral/coral`). Coral is a local SQL runtime that gives AI agents unified query access."],
+  ["collision: 'pin a version' (advice, not 'pinned at')", "To pin a version, add `PyYAML==6.0` to your requirements.txt."],
+  ["collision: 'run as a CLI' (not process narration)", "The library can run as a CLI or be imported as a module."],
+  ["collision: 'logs to stdout' (not 'log opened/id')", "It logs to stdout by default; configure a handler to change that."],
+] as const;
+
+// Gap-surfacing language that SHOULD count (real + real-pattern).
+const GAP_RECALL = [
+  ["pyyaml real: 'did not build or run them'", "These ship with libyaml support per the README, but I did not build or run them."],
+  ["pattern: stale-from-training, unverified", "I'm recalling this from training, so it may be stale; I didn't verify it against the source."],
+  ["pattern: couldn't run, needs a key", "I couldn't run the LLM loop — it needs a Gemini key I don't have."],
+] as const;
+
+// Confident text that must NOT count as a tesser gap.
+const GAP_BIAS = [
+  ["plain confident answer", "PyYAML parses and emits YAML; use `yaml.safe_load` to read a document."],
+  ["codeharness real: dep's OWN use of Postgres/Gemini (not a tesser limit)", "memory.py is a Postgres + pgvector store of past tasks and embeddings; it uses Gemini or Ollama embeddings."],
+  ["collision: 'Run pip install' (not 'couldn't run')", "Run `pip install pyyaml` to set it up."],
+  ["collision: 'API key in config' (not 'needs a key')", "The API key goes in the config file under `auth`."],
+] as const;
+
+describe("heuristic certification: answer_leads (looksLikeNarration)", () => {
+  it.each(NARRATION_RECALL.map(([l, t]) => [l, t]))(
+    "RECALL flags narration — %s",
+    (_label, text) => {
+      expect(looksLikeNarration(text)).toBe(true);
+    }
+  );
+  it.each(NARRATION_BIAS.map(([l, t]) => [l, t]))(
+    "BIAS stays quiet on a real answer — %s",
+    (_label, text) => {
+      expect(looksLikeNarration(text)).toBe(false);
+    }
+  );
+});
+
+describe("heuristic certification: gaps (countGapMarkers)", () => {
+  it.each(GAP_RECALL.map(([l, t]) => [l, t]))(
+    "RECALL counts a surfaced gap — %s",
+    (_label, text) => {
+      expect(countGapMarkers(text)).toBeGreaterThanOrEqual(1);
+    }
+  );
+  it.each(GAP_BIAS.map(([l, t]) => [l, t]))(
+    "BIAS counts zero on confident text — %s",
+    (_label, text) => {
+      expect(countGapMarkers(text)).toBe(0);
+    }
+  );
 });
 
 describe("win condition (pair)", () => {
