@@ -19,12 +19,13 @@ export interface Principle {
 export const PRINCIPLES: Principle[] = [
   { n: 1, name: "answer-first", test: "Leads with the answer (what it does → how it works → how to set up), not process/method narration. Penalize any 'I'll use the X skill', 'I built it from source at commit Y', or machinery preamble before the answer." },
   { n: 2, name: "right-sized length", test: "Tight enough a busy dev won't glaze over. An overview question wants ~4 short paragraphs of substance. Penalize wall-of-text, repetition, and detail past what was asked." },
-  { n: 3, name: "plain language", test: "No internal tooling jargon (run-grade, inspect-grade, digest, cold run, provisional) and no implementation status the dev doesn't care about ('cached this analysis', 'Log ID', clone bookkeeping, '~/.tesser holds N clones')." },
+  { n: 3, name: "plain language", test: "No internal tooling jargon (run-grade, inspect-grade, digest, cold run, provisional, 'drift check' / 'drift') and no implementation status the dev doesn't care about ('cached this analysis', 'Log ID', clone bookkeeping, '~/.tesser holds N clones'). 'Drift check' especially is a meaningless term to the developer." },
   { n: 4, name: "right-sized calibration", test: "Real authority/staleness caveats where they matter (e.g. 'this is a personal fork, upstream is X'; 'couldn't verify Y') are GOOD. Penalize overblown technical hedging the dev didn't ask for at overview altitude — repeated run-vs-read disclaimers, exact-detail flags whose truth wouldn't change the overview." },
   { n: 5, name: "no overclaim", test: "Flag any absolute/superlative that overstates ('instant', 'guaranteed', 'seamless', 'will be instant')." },
   { n: 6, name: "do/don't-for-me", test: "Says what it does FOR the dev AND what it does NOT do / its limits ('reasoning is delegated, not magic; the model still has to pick the algorithm')." },
   { n: 7, name: "mental-model mapping", test: "Relates it to known things ('like X but for Y') so the dev can place it against what they already know." },
   { n: 8, name: "JTBD close", test: "Ends with what we know / what we still don't know / where to go next, and the offered next steps name SPECIFIC developer jobs they might want (e.g. 'want the list of all 49 tools and what each does?'), NOT vague implementation tasks ('verify a tool end-to-end')." },
+  { n: 9, name: "machinery silence", test: "The developer sees the ANSWER, not the work that produced it. Penalize: (a) shell/clone/grep/cat/git tool blocks bracketing the answer — a `⟨tool …⟩` marker before the first answer line, or after the last; (b) method/progress narration before the answer ('I'll use the X skill', 'Cloning…', 'Finding the source', 'kicking off a drift check'); (c) MOST IMPORTANTLY, any no-op status report whose only content is that a check passed and nothing changed ('drift check: no drift', 'everything above is current', 'verified — nothing wrong'). Grounding/verification belongs in the background and stays SILENT unless it CHANGES the answer. A clean bill of health the dev didn't ask for is pure noise." },
 ];
 
 export interface FailureMode {
@@ -80,6 +81,11 @@ export function buildJudgePrompt(input: string | JudgeTurn[]): string {
       ? "Below is the FULL developer-facing conversation, turn by turn, EXACTLY as the developer read it — method narration, progress lines, and citation markup all included. Judge the developer's experience across the whole session, not one isolated paragraph."
       : "Judge ONLY the answer text below, against the rubric.",
     "",
+    "A line like `⟨tool $ git clone …⟩` or `⟨tool Read: server.py⟩` is a TOOL BLOCK the",
+    "developer watched scroll past (a shell command, a clone, a file read). It is part of",
+    "the experience — judge it under principle 9. A tool block before the first answer line,",
+    "or after the answer, is machinery the dev should not have seen.",
+    "",
     "RUBRIC — score each PASS / PARTIAL / FAIL with one short quoted span as evidence:",
     rubric,
     "",
@@ -92,6 +98,10 @@ export function buildJudgePrompt(input: string | JudgeTurn[]): string {
     "  question warranted, AND (b) do LATER turns repeat content already delivered — restated",
     "  theses, re-offered next steps, a disclaimer re-run every turn? Cross-turn repetition is",
     "  the more common failure; name the specific repeated span and how many turns carry it.",
+    "- Principle 9 (machinery silence): scan for `⟨tool …⟩` markers and progress narration.",
+    "  Any tool block or 'I'll use the X skill' / 'Cloning…' line BEFORE the first real answer",
+    "  is a FAIL — quote it. A standalone message that only reports a passed check ('drift",
+    "  check: no drift', 'everything is current') is a FAIL — it should have been silent.",
     "",
     "KNOWN_FAILURE_MODES — these are YOUR reliable biases as an LLM judge. Correct for each;",
     "do NOT generalize this into distrusting everything (that makes you useless):",

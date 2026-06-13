@@ -102,13 +102,16 @@ async function main() {
     process.exit(2);
     return;
   }
-  const totalChars = turns.reduce((n, t) => n + t.answer.length, 0);
+  const totalChars = turns.reduce((n, t) => n + t.rendered.length, 0);
+  const machinery = turns.map((t, i) => `T${i + 1}: ${t.toolLeadCount} before answer / ${t.toolCount} total`).join("  |  ");
   console.error(
     `[judge] grading ${turns.length} answer turn(s), ${totalChars} chars total, via claude -p …`,
   );
 
   console.log("\n" + structuralFloor(sessionPath, args.questionTurn));
-  const verdict = await askClaude(buildJudgePrompt(turns));
+  console.log(`  machinery        ${machinery}`);
+  // The judge grades the rendered transcript (tool blocks interleaved), not prose alone.
+  const verdict = await askClaude(buildJudgePrompt(turns.map((t) => ({ question: t.question, answer: t.rendered }))));
   console.log("\nLLM JUDGE (Obligation B — faithful confidence + the 8 principles):\n");
   console.log(verdict);
 
@@ -124,7 +127,7 @@ async function main() {
       "",
       "=== CONVERSATION ===",
       turns
-        .map((t, i) => `--- TURN ${i + 1}${t.question ? ` (asked: ${t.question.slice(0, 200)})` : ""} ---\n${t.answer}`)
+        .map((t, i) => `--- TURN ${i + 1}${t.question ? ` (asked: ${t.question.slice(0, 200)})` : ""} ---\n${t.rendered}`)
         .join("\n\n"),
       "",
       "=== JUDGE VERDICT ===",

@@ -24,6 +24,17 @@ export interface UserTurn {
   text: string;
 }
 
+/** One thing the developer SAW scroll past, in display order: an assistant text
+ *  block, or a tool call (the Bash/clone/grep/Read block). The judge needs both
+ *  — "bash, bash, answer, bash" is the experience, and the machinery around the
+ *  answer is exactly what the dogfood flagged; grading prose alone hides it. */
+export interface DisplayEvent {
+  ts: Date;
+  kind: "text" | "tool";
+  /** For text: the block. For tool: a compact one-line marker (e.g. `$ git clone …`). */
+  text: string;
+}
+
 export interface SessionView {
   sessionId: string;
   /** Every user turn, in order, with its text flattened to a string. */
@@ -31,6 +42,20 @@ export interface SessionView {
   /** Every non-empty assistant text block, in order. Tool-use/-result blocks
    *  are excluded: they are not what the human reads. */
   assistantBlocks: AssistantBlock[];
+  /** Text + tool calls interleaved in display order — the real scrollback. */
+  displayEvents: DisplayEvent[];
+}
+
+/** Compact one-line marker for a tool_use block, as a reviewer would skim it. */
+function summarizeTool(b: { name?: string; input?: Record<string, unknown> }): string {
+  const name = b.name ?? "tool";
+  const inp = b.input ?? {};
+  const oneLine = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim();
+  if (name === "Bash") return `$ ${oneLine(inp.command).slice(0, 100)}`;
+  const hint =
+    inp.description ?? inp.file_path ?? inp.path ?? inp.pattern ?? inp.prompt ?? inp.url ?? "";
+  const h = oneLine(hint).slice(0, 80);
+  return h ? `${name}: ${h}` : name;
 }
 
 /** Flatten a message `content` (string | block[]) to its plain text. */
@@ -57,6 +82,7 @@ export function parseSession(jsonlPath: string): SessionView {
   const lines = readFileSync(jsonlPath, "utf8").split("\n");
   const userTurns: UserTurn[] = [];
   const assistantBlocks: AssistantBlock[] = [];
+  const displayEvents: DisplayEvent[] = [];
   let sessionId = "";
 
   for (const line of lines) {
@@ -77,14 +103,28 @@ export function parseSession(jsonlPath: string): SessionView {
       if (ts) userTurns.push({ ts, text });
     } else if (type === "assistant" && message) {
       const ts = parseTs(o as { timestamp?: string });
+      if (!ts) continue;
       const text = flattenText(message.content);
-      if (ts && text.trim() !== "") {
+      if (text.trim() !== "") {
         assistantBlocks.push({ ts, text, chars: text.length });
+      }
+      // Walk the content array in display order so text and tool calls interleave
+      // exactly as they scrolled past the developer.
+      if (Array.isArray(message.content)) {
+        for (const b of message.content as Array<{ type?: string; text?: string; name?: string; input?: Record<string, unknown> }>) {
+          if (b?.type === "text" && (b.text ?? "").trim() !== "") {
+            displayEvents.push({ ts, kind: "text", text: b.text as string });
+          } else if (b?.type === "tool_use") {
+            displayEvents.push({ ts, kind: "tool", text: summarizeTool(b) });
+          }
+        }
+      } else if (typeof message.content === "string" && message.content.trim() !== "") {
+        displayEvents.push({ ts, kind: "text", text: message.content });
       }
     }
   }
 
-  return { sessionId, userTurns, assistantBlocks };
+  return { sessionId, userTurns, assistantBlocks, displayEvents };
 }
 
 /** One developer-facing turn: the question the dev asked and the assistant's
@@ -95,6 +135,15 @@ export interface AnswerTurn {
   /** Every assistant text block in this turn joined in order — the lead the
    *  developer actually saw, method narration and all. */
   answer: string;
+  /** The turn as the developer SAW it: text + tool calls interleaved in order,
+   *  tool calls rendered as `⟨tool $ …⟩`. This is what the judge grades — the
+   *  machinery bracketing the answer is visible, not stripped. */
+  rendered: string;
+  /** Tool calls before the first text block in this turn (the "bash at the
+   *  start" the dogfood flagged). */
+  toolLeadCount: number;
+  /** Total tool calls visible in this turn. */
+  toolCount: number;
   /** The assistant text blocks in this turn, in order. */
   blocks: AssistantBlock[];
 }
@@ -139,13 +188,22 @@ export function answerTurns(view: SessionView, override?: number): AnswerTurn[] 
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
     const nextTs = questions[i + 1]?.ts;
-    const blocks = view.assistantBlocks.filter(
-      (b) => b.ts >= q.ts && (!nextTs || b.ts < nextTs),
-    );
+    const inWindow = (ts: Date) => ts >= q.ts && (!nextTs || ts < nextTs);
+    const blocks = view.assistantBlocks.filter((b) => inWindow(b.ts));
     if (blocks.length === 0) continue;
+    const events = view.displayEvents.filter((e) => inWindow(e.ts));
+    const firstTextIdx = events.findIndex((e) => e.kind === "text");
+    const toolLeadCount = events
+      .slice(0, firstTextIdx < 0 ? events.length : firstTextIdx)
+      .filter((e) => e.kind === "tool").length;
     turns.push({
       question: q.text.trim(),
       answer: blocks.map((b) => b.text).join("\n\n"),
+      rendered: events
+        .map((e) => (e.kind === "tool" ? `    ⟨tool ${e.text}⟩` : e.text))
+        .join("\n\n"),
+      toolLeadCount,
+      toolCount: events.filter((e) => e.kind === "tool").length,
       blocks,
     });
   }
