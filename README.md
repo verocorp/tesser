@@ -2,16 +2,16 @@
 
 You know how your coding agent will confidently explain how some library works — and you can't tell whether it actually knows or it's guessing, so you end up double-checking it yourself? tesser is built for exactly that moment: instead of trusting docs or its own memory, it answers by actually cloning, building, and running the library.
 
-tesser is a Claude Code skill. You ask a question about an unfamiliar dependency; it answers with run-grade evidence.
+tesser is a Claude Code skill. You ask a question about an unfamiliar dependency; it answers fast, then grounds that answer in the real source and corrects itself if the source disagrees.
 
 ## What it does
 
-- Clones the repo at a pinned SHA — pinned at first clone and reused from then on. It never silently chases upstream; re-pinning happens only when you ask.
-- Surveys the structure, then kicks off a build in the background.
-- Answers your actual question first: you get a provisional answer immediately, labeled with its evidence grade, and once build and verify land, a follow-up answer at the upgraded grade supersedes it — a delivered answer is never silently edited. If your session ends mid-build, the next invocation picks up the finished build state and serves the upgraded grade from it. It never blocks your flow.
-- Verifies end-to-end, credentials-free: a runnable binary if there is one, else the test suite, else a minimal example.
-- Cites every load-bearing claim as `⟦path:Lstart-Lend⟧@sha12` — the first 12 characters of the pinned commit.
-- Classifies the dependency kind up front — clonable CLI, clonable library, SDK-of-hosted-service, hosted-closed, heavy-infra — and tells you the evidence-grade ceiling before doing any work. A hosted closed service can only get docs-grade answers, and tesser says so instead of pretending otherwise.
+- **Answers first, in plain language.** You get the answer immediately, calibrated by how it actually knows each thing — ran it, read it, or recalling it — never dressed up as more certain than it is. No jargon, no waiting on machinery.
+- **Grounds the answer against the real source at a pinned SHA, in the background.** If reading the source changes the answer, a follow-up supersedes it; if it confirms the answer, it stays quiet. A delivered answer is never silently edited.
+- **Scales the work to the question.** An overview reads the source. "How do I set it up" adds a quick build to confirm it installs. "Does it actually work" runs it end-to-end, credentials-free — a runnable binary if there is one, else the test suite, else a minimal example — and reports the commands and exit codes.
+- **Pins and reuses.** Cloned at a pinned SHA at first clone, reused from then on; it never silently chases upstream, and re-pins only when you ask. If your session ends mid-build, the next invocation picks up the finished build state.
+- **Grounds every load-bearing claim to file:line at the pinned commit**, kept in the digest it writes so the conversation stays readable — you see a file:line in the chat only when that location *is* the answer.
+- **Knows its ceiling and says so.** It recognizes when a dependency caps how far it can go — a closed hosted service it can only describe, not run — and tells you what it can confirm versus only describe, up front, instead of pretending.
 
 ## Install
 
@@ -46,8 +46,10 @@ The log is local-only. Nothing ever leaves your machine; there is no call-home. 
 
 tesser clones and builds arbitrary open-source code on your machine — the same thing you'd do by hand. It adds no confirmation layer of its own; it defers entirely to your host agent's (Claude Code's) session permission model and does nothing your agent couldn't already do.
 
-## Bundled digests
+## Digests
 
-`digests/` ships with pre-run digests for a starter set of libraries. When your question hits one, tesser serves it — with full provenance: repo, SHA, environment, every command run with its exit code, the run's timestamp, the dependency kind, and the evidence grade its claims reach — and tells you it did. The canonical provenance inventory is the frontmatter spec in `digest-schema.yaml`.
+When tesser grounds a question cold, it can write a digest — a markdown record with full provenance: repo, SHA, environment, every command run with its exit code, the run's timestamp, the dependency kind, and the evidence grade its claims reach. The next time a question hits that library, it grounds against the saved digest instead of cloning again. The canonical provenance inventory is the frontmatter spec in `digest-schema.yaml`.
+
+The skill's bundled `digests/` is empty in this build — no libraries ship pre-seeded yet, so your first question about any library is a cold run. Runtime digests accumulate under `~/.tesser/digests/` as you use it.
 
 One honest caveat: tesser trusts digests as ordinary local files. It records each digest's SHA-256 in the log when it persists or serves one, but it does not verify that hash at serve time — anything that can write to `~/.tesser/digests/` can change what a digest says.
