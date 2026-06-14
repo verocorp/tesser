@@ -10,9 +10,14 @@ version: 1
 # SKILL.md must contain this literal string for each clause below.
 anchor_format: "contract:<id>"
 
-# Byte budget for SKILL.md, pinned here so the test reads it as data.
+# Byte budget for SKILL.md, pinned here so the test reads it as data. SKILL.md is
+# the main-thread router + dev-facing output contract + build path; the grounding
+# machinery moved to subagent-brief.md (read by the background subagent in its own
+# context), which carries its own, looser budget.
 skill_md:
   max_bytes: 16384
+subagent_brief:
+  max_bytes: 12288
 
 clauses:
   - id: cited-claims

@@ -73,18 +73,30 @@ const GREETING_ONLY = /^(hi|hey|hello|yo|sup)\b[\s!.,]*$/i;
  *  that names the tool/process or its machinery instead of answering is
  *  narration — a genuine answer to the dev's question never mentions "tesser",
  *  the log, the pin, the digest, or the cold-run/classification scaffolding. */
+// Markers are anchored to tesser MACHINERY, not bare domain words. A bare
+// domain word (a 2026-06-13 regression: `classification` fired on GDS's "node
+// classification", `cold path` collides with the universal hot/cold-path perf
+// idiom) misreports a real answer as narration. Two rules learned the hard way
+// (after "the skill" — D41 — was the first such collision):
+//   1. Never list a word that a real dependency answer would legitimately use.
+//   2. Anchor an unavoidable domain word to its tesser-machinery context (a kind
+//      slug, a commit sha, a status report) so the collision can't fire.
+// The collision-corpus fixtures in score.test.ts pin both directions.
+const KIND_SLUG = "clonable-cli|clonable-library|sdk-of-hosted-service|hosted-closed|heavy-infra";
 const NARRATION = [
   /\btesser\b/i, // naming the tool/process in the lead, not the answer
   /\blog opened\b/i,
   /\blog id\b/i, // "Log ID is 6829f63b…" — announcing the instrument
-  /\bpinned at\b/i,
+  /\bpinned at\b[\s:`'"]*[0-9a-f]{7,40}\b/i, // "Pinned at d51d8a138f72" (a sha) — NOT "pinned at version 6.0"
   /\bfound a (local )?digest\b/i,
   /\bno digest\b/i, // "No digest, no clone — cold path" — narrating the cold branch
-  /\bself-update\b/i,
+  /\bself-update (done|complete|finished|skipped|ok)\b/i, // the machinery report — NOT "it supports self-update"
   /\bi have a validated digest\b/i,
   /^\s*(cold run|preflight)\b/i,
-  /\bcold path\b/i,
-  /\bclassification\b/i,
+  // tesser's repo-kind classification leak ("Classification: clonable-library",
+  // "I classified this as a clonable-library") — anchored to a kind slug so a
+  // domain answer ("node classification and link prediction") stays quiet.
+  new RegExp(`classif(y|ied|ication)\\b[^.\\n]{0,40}(${KIND_SLUG})`, "i"),
 ];
 
 /** Does this text LEAD with tesser machinery instead of the answer? The

@@ -272,6 +272,11 @@ const NARRATION_RECALL = [
   ["codeharness: 'follow the tesser protocol'", "I'll follow the tesser protocol. Let me start: self-update, open the invocation log, and check for an existing digest."],
   ["codeharness: 'No digest — cold path — Log ID'", "No digest, no clone — cold path. Log ID is `6829f63b`. Let me clone and pin it."],
   ["codeharness: 'Cloned and pinned at <sha>'", "Cloned and pinned at `9af90f68bf74`. Let me survey the structure to ground a provisional answer."],
+  // Pure leaks with NO co-marker — pin the anchored markers (kind-slug
+  // classification, sha-bound "pinned at", report-form "self-update done") so
+  // the tightening still catches the real tesser leak it was meant to catch.
+  ["anchored: 'Classification: clonable-library' (kind-slug leak)", "Classification: clonable-library. Let me survey the structure."],
+  ["anchored: 'self-update done' alone (report form)", "Self-update done. Resolving the canonical repo next."],
 ] as const;
 
 // Real default-agent openers that LEAD with the answer — must NOT flag.
@@ -282,6 +287,17 @@ const NARRATION_BIAS = [
   ["collision: 'pin a version' (advice, not 'pinned at')", "To pin a version, add `PyYAML==6.0` to your requirements.txt."],
   ["collision: 'run as a CLI' (not process narration)", "The library can run as a CLI or be imported as a module."],
   ["collision: 'logs to stdout' (not 'log opened/id')", "It logs to stdout by default; configure a handler to change that."],
+  // Domain-word collisions — the 2026-06-13 over-broad-narration-term regression.
+  // Each is a real dependency answer using a word the OLD lexicon listed bare;
+  // none names tesser machinery, so none may flag (the bug: a 36s GDS answer was
+  // misreported as a 267s "process narration" because of bare `classification`).
+  ["collision: 'node classification' (GDS, real — the bug)", "**Neo4j Graph Data Science (GDS)** is a library that runs graph algorithms — PageRank, community detection, node similarity. Recent versions add ML pipelines for node classification and link prediction."],
+  ["collision: 'cold path' (perf idiom, not the cold branch)", "The hot path is JIT-compiled; the cold path falls back to the interpreter, so first-call latency is higher."],
+  ["collision: 'self-update' (an updater lib's feature)", "It ships a self-update command — run `tool update` and it pulls the latest release and swaps the binary in place."],
+  ["collision: 'pinned at 6.0' (a version, not a sha)", "The transitive dependency is pinned at version 6.0 in the lockfile, so upgrades need an explicit bump."],
+  ["collision: 'classify' near no kind slug (ML answer)", "You call `model.classify(doc)` and it returns the predicted label with a confidence score."],
+  ["corpus: conc real overview opener", "**conc** is a Go library that makes structured concurrency ergonomic — it wraps goroutines, wait groups, and panic propagation behind a small pool API so you don't hand-roll them."],
+  ["corpus: pi real overview opener", "**pi** is a barebones coding-agent harness: a thin loop around an LLM with tool calls, designed to be read end-to-end in an afternoon rather than configured."],
 ] as const;
 
 // Gap-surfacing language that SHOULD count (real + real-pattern). The last three

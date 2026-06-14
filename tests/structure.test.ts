@@ -44,6 +44,7 @@ interface Contract {
   version: number;
   anchor_format: string;
   skill_md: { max_bytes: number };
+  subagent_brief: { max_bytes: number };
   clauses: Clause[];
 }
 
@@ -73,6 +74,14 @@ const forbiddenLexicon: string[] = (
 const skillBytes = readFileSync(join(repoRoot, "SKILL.md")); // raw bytes (gate 4)
 const skillText = skillBytes.toString("utf8");
 
+// The playbook now spans two files: SKILL.md (the main-thread router + dev-facing
+// output contract + the build path) and subagent-brief.md (the grounding machinery
+// the background subagent runs). Clause anchors, logger call sites, and the
+// self-update pin may live in EITHER file, so the content gates (1, 2, 5) read the
+// union. The byte budget (gate 4) and the dev-facing gates (6, 7) stay SKILL.md-only.
+const briefText = readFileSync(join(repoRoot, "subagent-brief.md"), "utf8");
+const playbookText = skillText + "\n" + briefText;
+
 /** YAML frontmatter of SKILL.md, parsed as data ({} if none). */
 function skillFrontmatter(): Record<string, unknown> {
   const m = skillText.match(/^---\n([\s\S]*?)\n---/);
@@ -100,14 +109,14 @@ function anchorFor(id: string): string {
 
 // Gate 1 — clause anchors: for EVERY clause id in contract.yaml (parsed as
 // data, never hardcoded), SKILL.md contains the literal `contract:<id>`.
-describe.skipIf(SKILL_IS_STUB)(`gate 1: clause anchors in SKILL.md${note}`, () => {
+describe.skipIf(SKILL_IS_STUB)(`gate 1: clause anchors in the playbook${note}`, () => {
   it.each(contract.clauses.map((c) => [c.id]))(
-    "SKILL.md carries the literal anchor for clause %s",
+    "the playbook carries the literal anchor for clause %s",
     (id) => {
       const anchor = anchorFor(id);
       expect(
-        skillText.includes(anchor),
-        `SKILL.md must contain the literal anchor "${anchor}" (contract.yaml anchor_format)`
+        playbookText.includes(anchor),
+        `the playbook (SKILL.md or subagent-brief.md) must contain the literal anchor "${anchor}" (contract.yaml anchor_format)`
       ).toBe(true);
     }
   );
@@ -115,25 +124,25 @@ describe.skipIf(SKILL_IS_STUB)(`gate 1: clause anchors in SKILL.md${note}`, () =
 
 // Gate 2 — logger call sites: the playbook invokes scripts/log-invocation at
 // start (open) AND at end (finalize).
-describe.skipIf(SKILL_IS_STUB)(`gate 2: logger call sites in SKILL.md${note}`, () => {
+describe.skipIf(SKILL_IS_STUB)(`gate 2: logger call sites in the playbook${note}`, () => {
   it("references scripts/log-invocation", () => {
     expect(
-      skillText.includes("scripts/log-invocation"),
-      "SKILL.md must reference scripts/log-invocation"
+      playbookText.includes("scripts/log-invocation"),
+      "the playbook must reference scripts/log-invocation"
     ).toBe(true);
   });
 
   it("invokes the logger's open subcommand (log at start)", () => {
     expect(
-      /log-invocation['"`]?\s+open\b/.test(skillText),
-      "SKILL.md must show a `scripts/log-invocation open` call site"
+      /log-invocation['"`]?\s+open\b/.test(playbookText),
+      "the playbook must show a `scripts/log-invocation open` call site"
     ).toBe(true);
   });
 
   it("invokes the logger's finalize subcommand (log at end)", () => {
     expect(
-      /log-invocation['"`]?\s+finalize\b/.test(skillText),
-      "SKILL.md must show a `scripts/log-invocation finalize` call site"
+      /log-invocation['"`]?\s+finalize\b/.test(playbookText),
+      "the playbook must show a `scripts/log-invocation finalize` call site"
     ).toBe(true);
   });
 });
@@ -176,6 +185,16 @@ describe("gate 4: SKILL.md byte budget", () => {
     expect(
       skillBytes.length,
       `SKILL.md is ${skillBytes.length} bytes; budget is ${max} (contract.yaml skill_md.max_bytes)`
+    ).toBeLessThanOrEqual(max);
+  });
+
+  it(`subagent-brief.md is <= contract.yaml subagent_brief.max_bytes`, () => {
+    const max = contract.subagent_brief.max_bytes;
+    const briefBytes = Buffer.byteLength(briefText, "utf8");
+    expect(typeof max).toBe("number");
+    expect(
+      briefBytes,
+      `subagent-brief.md is ${briefBytes} bytes; budget is ${max} (contract.yaml subagent_brief.max_bytes)`
     ).toBeLessThanOrEqual(max);
   });
 });
@@ -290,7 +309,7 @@ describe.skipIf(SKILL_IS_STUB)(`gate 7: two-beat overview machinery-silence (D42
 // Gate 5 — self-update pin (D23): the contract:self-update anchor, the
 // literal --ff-only, and the time-bound wording, consistent with the
 // self-update clause statement read as data.
-describe.skipIf(SKILL_IS_STUB)(`gate 5: self-update pin (D23) in SKILL.md${note}`, () => {
+describe.skipIf(SKILL_IS_STUB)(`gate 5: self-update pin (D23) in the playbook${note}`, () => {
   const clause = contract.clauses.find((c) => c.id === "self-update");
 
   it("contract.yaml's self-update clause itself carries --ff-only and the 5-second bound (spec cross-check)", () => {
@@ -299,18 +318,18 @@ describe.skipIf(SKILL_IS_STUB)(`gate 5: self-update pin (D23) in SKILL.md${note}
     expect(/5[- ]second/.test(clause!.statement)).toBe(true);
   });
 
-  it("SKILL.md carries the contract:self-update anchor", () => {
-    expect(skillText.includes(anchorFor("self-update"))).toBe(true);
+  it("the playbook carries the contract:self-update anchor", () => {
+    expect(playbookText.includes(anchorFor("self-update"))).toBe(true);
   });
 
-  it("SKILL.md carries the literal --ff-only", () => {
-    expect(skillText.includes("--ff-only")).toBe(true);
+  it("the playbook carries the literal --ff-only", () => {
+    expect(playbookText.includes("--ff-only")).toBe(true);
   });
 
-  it("SKILL.md carries the time-bound wording (5-second / 5 seconds)", () => {
+  it("the playbook carries the time-bound wording (5-second / 5 seconds)", () => {
     expect(
-      /5-second|5 seconds/.test(skillText),
-      'SKILL.md self-update wording must state the hard time bound ("5-second" or "5 seconds")'
+      /5-second|5 seconds/.test(playbookText),
+      'the self-update wording must state the hard time bound ("5-second" or "5 seconds")'
     ).toBe(true);
   });
 });
@@ -326,6 +345,8 @@ describe("spec-integrity: contract.yaml", () => {
     expect(contract.anchor_format).toContain("<id>"); // substitutable form
     expect(typeof contract.skill_md.max_bytes).toBe("number");
     expect(contract.skill_md.max_bytes).toBeGreaterThan(0);
+    expect(typeof contract.subagent_brief.max_bytes).toBe("number");
+    expect(contract.subagent_brief.max_bytes).toBeGreaterThan(0);
   });
 
   it("has a clauses list where every clause has id, statement, source, and a boolean delta", () => {
