@@ -304,6 +304,19 @@ describe.skipIf(SKILL_IS_STUB)(`gate 7: two-beat overview machinery-silence (D42
       'SKILL.md must say citations live in the map, not the chat'
     ).toBe(true);
   });
+
+  // The supersede (beat 2) leads with the corrected FACT, never narrates the act
+  // of grounding (Letta dogfood 2026-06-14, judge: "now that I've checked it
+  // against the actual source" was the weakest-principle seam — machinery silence
+  // extended from beat 1 to beat 2; a grade change like "confirmed by running it"
+  // is calibration the dev wants and stays in the build path, but "I read the
+  // source"/"the grounding found" is machinery the dev never needs).
+  it("the supersede leads with the corrected fact, never narrating the act of grounding", () => {
+    expect(
+      /never narrate the act of grounding/i.test(skillText),
+      'SKILL.md beat 2 must instruct the supersede to lead with the corrected fact and not narrate the act of grounding ("now that I\'ve checked the source")'
+    ).toBe(true);
+  });
 });
 
 // Gate 5 — self-update pin (D23): the contract:self-update anchor, the
