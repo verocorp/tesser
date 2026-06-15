@@ -45,6 +45,9 @@ describe("CALIBRATED Obligation B — rubric is well-formed (free)", () => {
     // conditional: it must scope itself to does-it-work, not penalize overviews
     expect(p11!.test.toLowerCase()).toMatch(/does-it-work|make-it-work/);
     expect(p11!.test.toLowerCase()).toMatch(/half-contract/);
+    // confirmed bar (D48, B3i vs B3ii): the distrust warning must be PROACTIVE —
+    // volunteered even when the dev never named the lying signal.
+    expect(p11!.test.toLowerCase()).toMatch(/proactiv/);
     const modes = KNOWN_FAILURE_MODES.map((f) => f.mode.toLowerCase()).join(" ");
     expect(modes).toMatch(/half-contract/);
   });

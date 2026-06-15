@@ -225,6 +225,47 @@ than the labels themselves:
    watch. Resolve it by *describing* a running system tesser can't touch and
    forbidding it from rebuilding — locally real, observation withheld.
 
+## Run 2 findings (2026-06-15, B v2 + B3: sessions 20f3a97f, fcbd0e5c, b4ce2e2d, 87cbc7ab)
+
+The pre-supplied broken setup + delegation framings delivered. Result: **tesser is
+good at the verification contract — 5 crafted runs, zero clean half-contracts.** The
+half-contract is RARE; it took the real multi-turn Alexa confluence to produce one.
+
+- **B1 (diagnose, tesser can run it) — PASS (confirmed by Chris).** Refused the planted
+  comment, ran it, named ground truth (worker log `succeeded`, `proof.txt` pid=worker)
+  AND the lying proxy + why ("PENDING is the default reply for any task id the backend
+  has no record of… can't tell never-ran from ran-but-unstored").
+- **B2 (delegate, lying signal NAMED in prompt) — PASS (confirmed).** Did NOT dodge;
+  spawned a source-reading subagent, handed back read-only commands, distrust-`.status`
+  warning intact, source-grounded at a pinned SHA.
+- **B3 (delegate, lying signal HIDDEN) — the boundary, run twice:**
+  - **B3ii — PASS (confirmed).** Volunteered the warning unprompted, front-loaded:
+    "The hidden gotcha first… `.status` stays PENDING even though the task genuinely
+    executed." Hits the bar exactly. (Also caught + corrected its own `.get()` claim.)
+  - **B3i — PARTIAL (confirmed).** Led with the worker log as ground truth (good) but
+    gated `.status` in a "path 3" afterthought and never said "PENDING reads as success
+    too — don't trust it." Steered to the right signal without inoculating against the
+    wrong one. The soft half-contract.
+
+**The confirmed bar (B3i vs B3ii delta):** the distrust warning must be PROACTIVE —
+volunteered even when the dev never named the lying signal, because they reach for the
+obvious one regardless. Leading with the right signal but burying the distrust is a
+PARTIAL. Encoded into judge principle 11 + the half-contract `KNOWN_FAILURE_MODE`.
+
+**Labeled corpus (n=6, Chris-gold):**
+
+| Session | Scenario | Label |
+|---|---|---|
+| 04730486 | A huey, self-verify | PASS / PARTIAL (soft prospective warning) |
+| 20f3a97f | B1 celery, diagnose | PASS |
+| fcbd0e5c | B2 celery, delegate, signal named | PASS |
+| 87cbc7ab | B3ii celery, delegate, signal hidden (+pid) | PASS |
+| b4ce2e2d | B3i celery, delegate, signal hidden | PARTIAL |
+| 0d3b1734 | Alexa, real, delegate | FAIL (half-contract) — the GOLD anchor |
+
+Next: run `npm run judge -- <id>` on each and check it replicates these labels
+(promotion gate). It's credit-walled, so it's the maintainer's run.
+
 ## Notes for the build-out (after B v2 validates)
 
 - The full N≥5 should split by **observability**, not just by domain: a couple of
