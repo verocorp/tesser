@@ -23,13 +23,30 @@ import {
 } from "./judge-rubric.ts";
 
 describe("CALIBRATED Obligation B — rubric is well-formed (free)", () => {
-  it("defines the dogfood principles, numbered 1..10", () => {
-    expect(PRINCIPLES).toHaveLength(10);
-    expect(PRINCIPLES.map((p) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  it("defines the dogfood principles, numbered 1..11", () => {
+    expect(PRINCIPLES).toHaveLength(11);
+    expect(PRINCIPLES.map((p) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
     for (const p of PRINCIPLES) {
       expect(p.name.length, `principle ${p.n} needs a name`).toBeGreaterThan(0);
       expect(p.test.length, `principle ${p.n} needs a test`).toBeGreaterThan(20);
     }
+  });
+
+  // D48 (2026-06-15) regression anchor — the verification-contract principle and
+  // its half-contract failure mode must not silently regress out. The semantic
+  // GOLD must-flag (judge principle 11 fires on session 0d3b1734's half-contract:
+  // "watch the setpoint" given, "ignore the activity log" omitted) is a LIVE check
+  // (`npm run judge -- 0d3b1734`), credit-walled like the b40f75e1 re-dogfood; this
+  // free test pins that the rubric is EQUIPPED to catch it. ADVISORY until the
+  // lying-signals catalog calibrates it on >=5 Chris-labeled make-it-work sessions.
+  it("carries the verification-contract principle + the half-contract failure mode (D48)", () => {
+    const p11 = PRINCIPLES.find((p) => p.n === 11);
+    expect(p11?.name).toBe("verification-contract");
+    // conditional: it must scope itself to does-it-work, not penalize overviews
+    expect(p11!.test.toLowerCase()).toMatch(/does-it-work|make-it-work/);
+    expect(p11!.test.toLowerCase()).toMatch(/half-contract/);
+    const modes = KNOWN_FAILURE_MODES.map((f) => f.mode.toLowerCase()).join(" ");
+    expect(modes).toMatch(/half-contract/);
   });
 
   it("carries no [FILL] sentinel (the bar is set)", () => {

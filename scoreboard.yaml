@@ -118,6 +118,22 @@ axes:
       no_underclaim: "no faithful claim hedged below its warrant (the 'trustworthy but useless' failure — miscalibration too)"
       gaps_surfaced: "known gaps named with pointers; unknown-gap residue flagged, not chased"
       provenance_attached: "every load-bearing claim has a checkable pointer at its actual grade"
+    verification_contract:                # D48 (2026-06-15) — Obligation B at does-it-work / make-it-work altitude. ADVISORY (agent-judged) until calibrated on Chris-labeled scenarios.
+      scope: "applies ONLY when the answer asserts a result works / does not work (does-it-work / make-it-work); never to an overview / what-is-it answer (there it is N/A, not a miss)."
+      rule: >
+        A result claim must ship the verification contract: (a) the ground-truth
+        signal to check, (b) the misleading proxies and WHY they lie — false-positive
+        (HTTP 200 / exit 0 = 'dispatched', not 'worked') and false-negative (a status
+        log that never updates even on success), (c) an honest agent-observable vs
+        dev-only split, (d) on delegation, the COMPLETE 'watch X, distrust Y because
+        it lies' instruction.
+      failure_mode: >
+        the HALF-CONTRACT — a positive signal with no distrust warning for a proxy
+        that will mislead. Session 0d3b1734: 'watch the setpoint' was given but
+        'ignore the activity log, it won't move even on success' was omitted for
+        ~40 min, so the dev chased a phantom (the call had worked the whole time).
+      status: advisory                    # n=1 (0d3b1734). Promote to load-bearing once `npm run judge` replicates Chris on >=5 labeled make-it-work scenarios (the lying-signals catalog: false-pos HTTP200/exit0/job-id, false-neg ran-not-attributed, delayed cache/async).
+      deferred_to_v2: "the corollary that the AGENT runs its own degraded self-check BEFORE delegating is actually-verify (#1) — deferred with the run/sandbox tier, same line as the rest of #1."
     edge_over_default: >
       The bare agent flags gaps ad-hoc (codeharness: it caught the placeholder/
       forward-dated model IDs, Python-only validation, and the `git add -A` blast

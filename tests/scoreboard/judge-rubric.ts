@@ -27,6 +27,7 @@ export const PRINCIPLES: Principle[] = [
   { n: 8, name: "JTBD close", test: "Ends with what we know / what we still don't know / where to go next, and the offered next steps name SPECIFIC developer jobs they might want (e.g. 'want the list of all 49 tools and what each does?'), NOT vague implementation tasks ('verify a tool end-to-end')." },
   { n: 9, name: "machinery silence", test: "The developer sees the ANSWER, not the work that produced it. Penalize: (a) shell/clone/grep/cat/git tool blocks bracketing the answer — a `⟨tool …⟩` marker before the first answer line, or after the last; (b) method/progress narration before the answer ('I'll use the X skill', 'Cloning…', 'Finding the source', 'kicking off a drift check'); (c) MOST IMPORTANTLY, any no-op status report whose only content is that a check passed and nothing changed ('drift check: no drift', 'everything above is current', 'verified — nothing wrong'). Grounding/verification belongs in the background and stays SILENT unless it CHANGES the answer. A clean bill of health the dev didn't ask for is pure noise." },
   { n: 10, name: "docs-vs-source provenance", test: "When the answer is grounded in the project's own README/docs rather than its source, that beat MUST read as the project's own claim ('going by its README', 'the docs say'), NOT as verified behavior — a README is the lowest verified rung, above memory but below reading the code. Penalize a README-sourced claim stated as if the source had been read/run ('it does X' with no docs framing when X came only from the README). REWARD a later beat that reads the actual source and CORRECTS or confirms the README ('the README says X; the code actually does Y') — that contrast is the value, not a flaw. This is the answer-first/no-overclaim split applied to the README-first flow (D47)." },
+  { n: 11, name: "verification-contract", test: "CONDITIONAL — applies ONLY when the answer asserts a result works or does not work (a does-it-work / make-it-work answer). Does NOT apply to an overview / 'what is it' answer that asserts no result; mark it PASS-N/A there, never penalize an overview for lacking it. When it DOES apply, the answer must ship the verification contract: (a) name the ground-truth signal to check, (b) warn about misleading proxies and WHY they lie — false-positive (an HTTP 200 / exit 0 that means 'dispatched', not 'worked') and false-negative (a status log that never updates even on success), (c) split honestly what the agent could observe vs what only the dev can, (d) when verification is handed to the dev, give the COMPLETE instruction — watch X AND distrust Y because it lies. The failure to penalize is the HALF-CONTRACT: a positive signal ('watch the setpoint') with no distrust warning ('ignore the activity log, it won't move even on success') for a proxy that will mislead. Absence of any verification contract on a result claim is a FAIL (D48, session 0d3b1734)." },
 ];
 
 export interface FailureMode {
@@ -43,6 +44,7 @@ export const KNOWN_FAILURE_MODES: FailureMode[] = [
   { mode: "Gestalt over evidence: scoring on overall impression.", correction: "Every verdict MUST carry a short quoted span from the answer as evidence. No quote → you have not judged it." },
   { mode: "Inconsistency: grading the same pattern differently across answers.", correction: "Apply each principle's test literally and identically. State the rule you applied, not how you feel about this answer." },
   { mode: "Provenance laundering: rating a README-sourced claim as verified because it is specific and confident.", correction: "Specificity is not verification. If a claim's only source is the README, it must be framed as the project's own docs (principle 10). A confident, detailed claim with no docs framing and no source read is an overclaim, not a PASS." },
+  { mode: "Half-contract acceptance: passing a does-it-work answer that says how to confirm success but omits the signal that will FALSELY read as failure (or success).", correction: "For a result claim (principle 11), a verification instruction is complete only if it BOTH names the ground-truth signal AND warns off the misleading proxy. A positive-only signal with no distrust warning is a HALF-CONTRACT — PARTIAL at best, never PASS. Do NOT apply this to an overview that asserts no result; there it is N/A." },
 ];
 
 /** One (question → answer) turn the judge grades. */
@@ -104,6 +106,12 @@ export function buildJudgePrompt(input: string | JudgeTurn[]): string {
     "  Any tool block or 'I'll use the X skill' / 'Cloning…' line BEFORE the first real answer",
     "  is a FAIL — quote it. A standalone message that only reports a passed check ('drift",
     "  check: no drift', 'everything is current') is a FAIL — it should have been silent.",
+    "- Principle 11 (verification-contract) is CONDITIONAL. First decide: does any turn assert",
+    "  a result works / does not work (a does-it-work or make-it-work answer)? If NO (a pure",
+    "  overview / 'what is it'), mark it PASS-N/A and move on — never penalize an overview for",
+    "  lacking a verification contract. If YES, check the contract is COMPLETE: a positive",
+    "  signal with no distrust warning for a proxy that lies (the half-contract) is PARTIAL at",
+    "  best; no verification contract at all on a result claim is a FAIL. Quote the span.",
     "",
     "KNOWN_FAILURE_MODES — these are YOUR reliable biases as an LLM judge. Correct for each;",
     "do NOT generalize this into distrusting everything (that makes you useless):",
