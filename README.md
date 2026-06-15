@@ -1,17 +1,19 @@
 # tesser
 
-You know how your coding agent will confidently explain how some library works — and you can't tell whether it actually knows or it's guessing, so you end up double-checking it yourself? tesser is built for exactly that moment: instead of trusting docs or its own memory, it answers by actually cloning, building, and running the library.
+You know how your coding agent will confidently explain how some library works — and you can't tell whether it actually knows or it's guessing, so you end up double-checking it yourself? tesser is built for exactly that moment: instead of trusting docs or its own memory, it answers by actually cloning, building, and running the code.
 
 tesser is a Claude Code skill. You ask a question about an unfamiliar dependency; it answers fast, then grounds that answer in the real source and corrects itself if the source disagrees.
 
 ## What it does
 
-- **Answers first, in plain language.** You get the answer immediately, calibrated by how it actually knows each thing — ran it, read it, or recalling it — never dressed up as more certain than it is. No jargon, no waiting on machinery.
-- **Grounds the answer against the real source at a pinned SHA, in the background.** If reading the source changes the answer, a follow-up supersedes it; if it confirms the answer, it stays quiet. A delivered answer is never silently edited.
-- **Scales the work to the question.** An overview reads the source. "How do I set it up" adds a quick build to confirm it installs. "Does it actually work" runs it end-to-end, credentials-free — a runnable binary if there is one, else the test suite, else a minimal example — and reports the commands and exit codes.
-- **Pins and reuses.** Cloned at a pinned SHA at first clone, reused from then on; it never silently chases upstream, and re-pins only when you ask. If your session ends mid-build, the next invocation picks up the finished build state.
-- **Grounds every load-bearing claim to file:line at the pinned commit**, kept in the digest it writes so the conversation stays readable — you see a file:line in the chat only when that location *is* the answer.
-- **Knows its ceiling and says so.** It recognizes when a dependency caps how far it can go — a closed hosted service it can only describe, not run — and tells you what it can confirm versus only describe, up front, instead of pretending.
+tesser is an early alpha. The behaviors below are what it aims for and usually delivers, not promises — and when it falls short or hits a limit, it's built to tell you rather than paper over it.
+
+- **Answers first, in plain language.** You get the answer immediately, with a clear sense of how it knows each part — whether it ran the code, read it, or is going from memory — and never made to sound more certain than it is. No jargon, and nothing to wait on.
+- **Checks the answer against the real source, in the background.** It works from one specific commit of the code. If reading the source changes the answer, a follow-up corrects it; if the source confirms it, tesser stays quiet — an answer it already gave you is never silently edited.
+- **Scales the work to the question.** An overview just reads the source. "How do I set it up" adds a quick build to confirm it installs. "Does it actually work" runs it end-to-end, with no credentials needed — a runnable binary if there is one, else the test suite, else a minimal example — and shows you the commands it ran and whether they passed.
+- **Pins and reuses.** The first time it clones a library, it locks onto one specific commit and reuses that from then on — it never quietly jumps to a newer version, and only moves forward when you ask. If your session ends mid-build, the next run picks up where it left off.
+- **Points to the exact code behind a claim.** Every claim the answer rests on is backed by a file and line number in that specific commit, but that detail stays out of the chat unless the file and line *is* the answer — so the conversation stays readable.
+- **Knows its limits and says so.** When a library caps how far it can go — a closed hosted service it can describe but not run — it tells you up front what it can confirm versus only describe, instead of pretending.
 
 ## Install
 
@@ -22,34 +24,33 @@ git clone https://github.com/verocorp/tesser ~/.claude/skills/tesser
 ~/.claude/skills/tesser/scripts/setup
 ```
 
-Setup creates a private Python environment at `~/.tesser/venv` for tesser's scripts — nothing is installed into your system Python. Re-running it is a no-op until the requirements change. If you skip it, tesser still answers questions; it just can't validate digests, so cold runs won't persist them.
+Setup creates a private Python environment at `~/.tesser/venv` for tesser's scripts — nothing is installed into your system Python. Re-running it does nothing unless those requirements change. If you skip it, tesser still answers questions; it just can't save what it learns from a run to reuse next time.
 
 If you'd rather not clone, a zip of this repo unpacked to the same location works identically — the setup step still applies.
 
 ## Self-update
 
-At invocation, tesser runs a quiet `git pull --ff-only` in its own skill directory to pick up updates, bounded by a hard 5-second time limit. It is fail-silent: offline, timed out, or diverged means the pull is skipped, and it never blocks an answer. If you installed from a zip there is no git directory and no pull happens. To opt out permanently, delete the `.git` directory.
+On each run, tesser does a quick `git pull --ff-only` in its own skill directory to pick up updates, bounded by a 5-second limit. It fails silently — offline, slow, or diverged just skips it, and it never blocks an answer. To opt out, delete the `.git` directory (a zip install has none, so nothing happens).
 
 ## Local state and logging
 
-tesser keeps all persisted state under `~/.tesser/`:
+tesser keeps all its state under `~/.tesser/`:
 
-- `log.jsonl` — one record per invocation, opened at start and finalized at end: timestamp (`ts`), the resolved repo URL, the pinned SHA, your question, invocation source (`seeded` or `self`), dependency kind, outcome, the failing command and exit code when a step fails, and the path and SHA-256 of any cached digest consulted. A run you abandon mid-build honestly keeps its opened, unfinalized record. The canonical field set and outcome semantics live in `log-schema.yaml` — that file, not this list, is the inventory.
+- `log.jsonl` — one line each time you ask it something, recording what it did: the repo and exact commit it looked at, your question, what happened, and the command and exit code if a step failed. If a run stops partway, its line is just left unfinished. The full set of fields is documented in `log-schema.yaml`.
 - `venv/` — the private Python environment that `scripts/setup` creates
-- a first-run marker
 - `clones/` — the repos it has cloned
-- `digests/` — the markdown digests it produces
+- `digests/` — saved results from past runs (see [Digests](#digests) below)
 
-The log is local-only. Nothing ever leaves your machine; there is no call-home. Sharing a log or a digest with anyone is a manual act you perform yourself.
+The log is local-only.
 
 ## Untrusted code
 
-tesser clones and builds arbitrary open-source code on your machine — the same thing you'd do by hand. It adds no confirmation layer of its own; it defers entirely to your host agent's (Claude Code's) session permission model and does nothing your agent couldn't already do.
+tesser clones and builds the open-source code you ask about, on your machine. Claude Code's normal permissions apply — tesser adds no confirmation layer of its own.
 
 ## Digests
 
-When tesser grounds a question cold, it can write a digest — a markdown record with full provenance: repo, SHA, environment, every command run with its exit code, the run's timestamp, the dependency kind, and the evidence grade its claims reach. The next time a question hits that library, it grounds against the saved digest instead of cloning again. The canonical provenance inventory is the frontmatter spec in `digest-schema.yaml`.
+The first time tesser answers a question by going to a library's source, it can save what it found as a **digest** — a markdown file recording where it looked and what it ran: the repo, the exact commit, the environment, and every command with whether it passed. The next time you ask about that library, it reads the saved digest instead of cloning again. The full format is documented in `digest-schema.yaml`.
 
-The skill's bundled `digests/` is empty in this build — no libraries ship pre-seeded yet, so your first question about any library is a cold run. Runtime digests accumulate under `~/.tesser/digests/` as you use it.
+No digests ship with tesser yet, so your first question about any library always goes to the source. After that, saved digests build up under `~/.tesser/digests/` as you use it.
 
-One honest caveat: tesser trusts digests as ordinary local files. It records each digest's SHA-256 in the log when it persists or serves one, but it does not verify that hash at serve time — anything that can write to `~/.tesser/digests/` can change what a digest says.
+Note: tesser treats digests as ordinary local files. It records each digest's SHA-256 in the log, but doesn't re-check that hash when it reuses one — so anything that can write to `~/.tesser/digests/` can change what a digest says.
