@@ -263,8 +263,16 @@ PARTIAL. Encoded into judge principle 11 + the half-contract `KNOWN_FAILURE_MODE
 | b4ce2e2d | B3i celery, delegate, signal hidden | PARTIAL |
 | 0d3b1734 | Alexa, real, delegate | FAIL (half-contract) — the GOLD anchor |
 
-Next: run `npm run judge -- <id>` on each and check it replicates these labels
-(promotion gate). It's credit-walled, so it's the maintainer's run.
+**Judge VALIDATED (2026-06-15):** `npm run judge` on the 3 decision-relevant
+sessions matched the gold labels on principle 11 — B1 PASS, B3i PARTIAL (judge
+independently named "the SOFT half-contract (B3i shape)"), Alexa FAIL (caught the
+40-min-late/reactive timing across 10 turns, and that T4 actively pointed the dev
+at the lying proxy). Principle 11 graduates advisory → load-bearing. (A/B2/B3ii
+expected easy PASSes — run to round out N≥5 + check for false-FAILs.)
+
+Separate, NOT D48: all 3 also failed principle 9 (machinery silence) + 1 — the
+make-it-work path narrates progress and foregrounds tools. Tracked on the
+DIGESTIBLE axis, not here.
 
 ## Notes for the build-out (after B v2 validates)
 
