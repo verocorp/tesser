@@ -119,6 +119,32 @@ clauses:
       the finished build state under ~/.tesser/ and serves the upgraded
       grade from it. Never block the developer's flow on a compile.
 
+  - id: readme-first
+    delta: true # value-over-baseline delta — closes the empty-beat-1 / slow-overview gap
+    source: ["D47 (2026-06-15 eng-review)", "scoreboard faster", "session b40f75e1"]
+    # When the model does not recognize the dependency (tesser's founding case),
+    # "answer from memory" has nothing to draw on, so beat 1 degenerated to a
+    # holding line ("I don't know this, reading now") and the developer waited
+    # for the clone — failing the FASTER hard gate on the exact case tesser
+    # exists for. README-first grounds beat 1 in the project's own docs, fast.
+    statement: >-
+      When the model does not already know the dependency, the immediate
+      (beat-1) answer is grounded in the project's own README/description
+      first — one fast, SHA-pinned fetch (gh api / raw at the resolved HEAD),
+      never a clone, never blocking — and conveyed in plain language as the
+      project's own documentation (docs-grade: the lowest verified rung,
+      above memory and below reading the source), never asserted as verified
+      behavior. A holding-line acknowledgment in place of a real beat-1 answer
+      is the FASTER failure this clause removes. For an overview, grounding
+      fetches the README plus the few load-bearing files at the resolved SHA
+      rather than cloning the whole repo; a clone happens only when altitude
+      escalates to set-up or does-it-work (a build needs a working tree). A
+      fetch-grounded overview is ephemeral — it persists no digest (nothing to
+      amortize, and the validator's clone invariant stays untouched). The one
+      foreground step this licenses is the README/docs fetch that produces the
+      answer; self-update, the invocation log, the digest consult, and the
+      clone remain the background subagent's job, never a foreground step.
+
   - id: self-update
     delta: false
     source: ["D15", "D23"]

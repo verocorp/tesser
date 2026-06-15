@@ -319,6 +319,71 @@ describe.skipIf(SKILL_IS_STUB)(`gate 7: two-beat overview machinery-silence (D42
   });
 });
 
+// Gate 8 — README-first beat-1 (D47, 2026-06-15). When the model does not know
+// the dependency (tesser's founding case), beat 1 must ground in a fast README
+// read instead of emitting a "hang on, I don't know this" holding line (the
+// FASTER failure reproduced in session b40f75e1). Pins the dev-facing WORDING
+// of the behavior + the backslide guard that the one licensed foreground step
+// (the README fetch) does not widen back into the foreground machinery D43/D45
+// killed.
+// NOT verified here: that the agent actually fetches the README at runtime (the
+// Ring-D obedience e2e + scored dogfood own that); that the fetch resolves a sha
+// (subagent-brief mechanic, not dev-facing). This gate is SKILL.md-only —
+// beat 1 is the dev-facing main thread, not the background brief.
+describe.skipIf(SKILL_IS_STUB)(`gate 8: README-first beat-1 (D47)${note}`, () => {
+  it("names the unknown-dep case (beat 1 can't answer from memory)", () => {
+    expect(
+      /don'?t recognize it|unfamiliar dependenc|when you don'?t (already )?know/i.test(skillText),
+      "SKILL.md beat 1 must name the case where the model does not know the dep"
+    ).toBe(true);
+  });
+
+  it("grounds the unknown-dep beat-1 in a fast README read, not a clone", () => {
+    expect(
+      /README/i.test(skillText) && /fetch/i.test(skillText),
+      "SKILL.md beat 1 must ground an unknown dep in a README/description fetch"
+    ).toBe(true);
+    expect(
+      /never a clone|no clone/i.test(skillText),
+      "SKILL.md must say the README read is a fetch, never a clone"
+    ).toBe(true);
+  });
+
+  it("labels README-sourced content as the project's own docs, never as verified", () => {
+    expect(
+      /project'?s own doc|going by (its|the) README/i.test(skillText),
+      "SKILL.md must convey a README answer as the project's own docs (docs-grade), not verified behavior"
+    ).toBe(true);
+  });
+
+  it("kills the holding-line non-answer (it is the FASTER failure)", () => {
+    expect(
+      /holding line/i.test(skillText),
+      'SKILL.md must call out the "holding line" non-answer as the speed failure to avoid'
+    ).toBe(true);
+  });
+
+  // The backslide guard (principle 10 — gate in the negative). The README fetch
+  // is the ONE licensed foreground step; self-update / log / map / clone must
+  // stay the background subagent's, never foreground. Without this pin, "you may
+  // fetch the README foreground" rots back into the foreground-machinery bug
+  // that took D43/D45 to kill.
+  it("scopes the foreground allowance: the README fetch is the ONLY foreground step", () => {
+    expect(
+      /only\b[\s\S]{0,40}foreground step/i.test(skillText),
+      "SKILL.md must say the README fetch is the only foreground step it licenses"
+    ).toBe(true);
+  });
+
+  it("keeps the clone / log / self-update in the background, never foreground", () => {
+    expect(
+      /(stay|stays|remain|remains) the (background )?subagent'?s/i.test(skillText) &&
+        /never a foreground step/i.test(skillText),
+      "SKILL.md must say git pull / log / map / clone stay the background subagent's job, never a foreground step"
+    ).toBe(true);
+  });
+});
+
 // Gate 5 — self-update pin (D23): the contract:self-update anchor, the
 // literal --ff-only, and the time-bound wording, consistent with the
 // self-update clause statement read as data.

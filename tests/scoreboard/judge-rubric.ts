@@ -26,6 +26,7 @@ export const PRINCIPLES: Principle[] = [
   { n: 7, name: "mental-model mapping", test: "Relates it to known things ('like X but for Y') so the dev can place it against what they already know." },
   { n: 8, name: "JTBD close", test: "Ends with what we know / what we still don't know / where to go next, and the offered next steps name SPECIFIC developer jobs they might want (e.g. 'want the list of all 49 tools and what each does?'), NOT vague implementation tasks ('verify a tool end-to-end')." },
   { n: 9, name: "machinery silence", test: "The developer sees the ANSWER, not the work that produced it. Penalize: (a) shell/clone/grep/cat/git tool blocks bracketing the answer — a `⟨tool …⟩` marker before the first answer line, or after the last; (b) method/progress narration before the answer ('I'll use the X skill', 'Cloning…', 'Finding the source', 'kicking off a drift check'); (c) MOST IMPORTANTLY, any no-op status report whose only content is that a check passed and nothing changed ('drift check: no drift', 'everything above is current', 'verified — nothing wrong'). Grounding/verification belongs in the background and stays SILENT unless it CHANGES the answer. A clean bill of health the dev didn't ask for is pure noise." },
+  { n: 10, name: "docs-vs-source provenance", test: "When the answer is grounded in the project's own README/docs rather than its source, that beat MUST read as the project's own claim ('going by its README', 'the docs say'), NOT as verified behavior — a README is the lowest verified rung, above memory but below reading the code. Penalize a README-sourced claim stated as if the source had been read/run ('it does X' with no docs framing when X came only from the README). REWARD a later beat that reads the actual source and CORRECTS or confirms the README ('the README says X; the code actually does Y') — that contrast is the value, not a flaw. This is the answer-first/no-overclaim split applied to the README-first flow (D47)." },
 ];
 
 export interface FailureMode {
@@ -41,6 +42,7 @@ export const KNOWN_FAILURE_MODES: FailureMode[] = [
   { mode: "Eloquence / length bias: treating a long, thorough answer as a better one.", correction: "Length is a COST here (principle 2). A longer answer is worse, not better, unless the question needed the depth. Reward concision." },
   { mode: "Gestalt over evidence: scoring on overall impression.", correction: "Every verdict MUST carry a short quoted span from the answer as evidence. No quote → you have not judged it." },
   { mode: "Inconsistency: grading the same pattern differently across answers.", correction: "Apply each principle's test literally and identically. State the rule you applied, not how you feel about this answer." },
+  { mode: "Provenance laundering: rating a README-sourced claim as verified because it is specific and confident.", correction: "Specificity is not verification. If a claim's only source is the README, it must be framed as the project's own docs (principle 10). A confident, detailed claim with no docs framing and no source read is an overclaim, not a PASS." },
 ];
 
 /** One (question → answer) turn the judge grades. */

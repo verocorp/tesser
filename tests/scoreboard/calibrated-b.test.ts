@@ -23,9 +23,9 @@ import {
 } from "./judge-rubric.ts";
 
 describe("CALIBRATED Obligation B — rubric is well-formed (free)", () => {
-  it("defines the dogfood principles, numbered 1..9", () => {
-    expect(PRINCIPLES).toHaveLength(9);
-    expect(PRINCIPLES.map((p) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  it("defines the dogfood principles, numbered 1..10", () => {
+    expect(PRINCIPLES).toHaveLength(10);
+    expect(PRINCIPLES.map((p) => p.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     for (const p of PRINCIPLES) {
       expect(p.name.length, `principle ${p.n} needs a name`).toBeGreaterThan(0);
       expect(p.test.length, `principle ${p.n} needs a test`).toBeGreaterThan(20);

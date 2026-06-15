@@ -298,6 +298,13 @@ const NARRATION_BIAS = [
   ["collision: 'classify' near no kind slug (ML answer)", "You call `model.classify(doc)` and it returns the predicted label with a confidence score."],
   ["corpus: conc real overview opener", "**conc** is a Go library that makes structured concurrency ergonomic — it wraps goroutines, wait groups, and panic propagation behind a small pool API so you don't hand-roll them."],
   ["corpus: pi real overview opener", "**pi** is a barebones coding-agent harness: a thin loop around an LLM with tool calls, designed to be read end-to-end in an afternoon rather than configured."],
+  // README-first docs-grade beat-1 (D47, 2026-06-15). The new "going by its
+  // README" / "the README says" framing is a REAL answer that must stay quiet —
+  // it is docs-grade grounding, not machinery narration. "README" must never
+  // become a narration anchor (the same collision discipline as "classification"
+  // / "cold path"): a leading docs-grade answer leads.
+  ["readme-first: 'going by its README' (docs-grade beat-1)", "Going by its README, conc is a Go library for structured concurrency — it wraps goroutines, wait groups, and panic propagation behind a small pool API."],
+  ["readme-first: 'the README says' (docs-grade beat-1)", "The README says it's a local SQL runtime that gives AI agents unified query access across files and databases; I'm reading the source to confirm."],
 ] as const;
 
 // Gap-surfacing language that SHOULD count (real + real-pattern). The last three
@@ -475,5 +482,40 @@ describe.skipIf(!haveGold)("GOLD: reproduce scoreboard-results.md (real sessions
     );
     expect(v.calibrated).toBe("tesser-better"); // provenance 14 vs 0
     expect(v.win).toBe(false);
+  });
+});
+
+// --- GOLD recall: the README-first failure (D47, 2026-06-15) ----------------
+//
+// Session b40f75e1 is the reproduction of the empty-beat-1 / unknown-dep bug:
+// `/tesser tell me about github.com/verocorp/tesser` — a repo the model does
+// NOT know, so beat 1 was a holding line ("I don't have reliable knowledge…,
+// reading the actual source now, sit tight") and the real answer only arrived
+// at the superseding correction ~163s later. This pins that the durable scorer
+// FLAGS the failure (answer does not lead; no real first answer can be
+// isolated) so a future "fix" that silently stops flagging it is caught. The
+// README-first SKILL fix flips a FRESH dogfood session of an unknown dep to
+// answer-leads + TTFA<30s — that is the periodic re-dogfood, not this baseline.
+//
+// NOTE (degenerate demo): this question is tesser-on-itself, so the answer
+// legitimately discusses "tesser"/"the skill" — a self-referential case the
+// narration heuristic also trips on. A real third-party unknown dep is the
+// representative recall fixture; add it from the scored re-dogfood.
+const tesserOnSelf = join(WITH, "b40f75e1-05b4-4e51-be24-42046035d7bc.jsonl");
+const haveReadmeGold = existsSync(tesserOnSelf);
+
+describe.skipIf(!haveReadmeGold)("GOLD recall: README-first failure (b40f75e1)", () => {
+  it("flags the unknown-dep holding line: answer does NOT lead, no real first answer isolated", () => {
+    const s = scoreSession(tesserOnSelf, "tesser");
+    expect(s.questionTurnIndex).toBe(0);
+    // beat 1 is a holding line, not an answer → answer does not lead
+    expect(s.digestible.answerLeads).toBe(false);
+    // every >=250-char block reads as narration → the scorer cannot isolate a
+    // real first answer and warns (the deterministic signal of the bug)
+    expect(s.faster.note).toBeDefined();
+    // falls back to block #0 (the 33s holding line); the TRUE first answer is
+    // the supersede ~163s later — the holding line does not stop the clock.
+    expect(s.faster.firstAnswerBlockIndex).toBe(0);
+    expect(s.faster.ttfaSeconds).toBeCloseTo(33.2, 1);
   });
 });

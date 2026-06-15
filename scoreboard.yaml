@@ -69,6 +69,9 @@ axes:
     first_answer_shape:                 # tesser's required first emission (also makes TTFA deterministically detectable)
       - "a direct concise answer to the asked question (one-liner / paragraph / <=3 bullets)"
       - "then a deepening-in-progress + invite-follow-ups line: 'I'm pulling more so I can X — tell me your follow-ups'"
+    beat1_source:                       # D47 (2026-06-15): where beat-1's SUBSTANCE comes from — readme-first contract
+      known_dep: "answer immediately from the model's own knowledge, calibrated (sure-of vs only-recalling)"
+      unknown_dep: "a fast SHA-pinned README/description fetch (no clone) grounds a real docs-grade beat-1 answer in seconds. A holding line ('I don't recognize this, reading the source now, sit tight') is NOT a beat-1 answer — it is the acknowledgment the definition says does NOT stop the clock, so TTFA runs to the superseding answer and the hard gate fails (reproduced: session b40f75e1, 33s holding line, true first answer 163s)."
     gate: hard
     bar:
       ideal_seconds: 10

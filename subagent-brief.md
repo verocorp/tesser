@@ -52,15 +52,21 @@ Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hoste
 
 Check `~/.tesser/clones/<host>/<org-path>/<repo>/`. If it exists, reuse it at its pinned SHA — never pull, never chase upstream; re-pin only on explicit developer request or missing/corrupt state. Otherwise clone (`--depth 1` ok), record `git rev-parse HEAD` as the pin, and use that SHA in every citation.
 
+**Overview exception (contract:readme-first):** an overview does not clone. Pin via the resolved HEAD sha from `gh api` (§6) and fetch files at that sha — same pin, no working tree. A clone is only required once the altitude reaches set-up / does-it-work below.
+
 Also check `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/state`: a previous session may have finished a build after it ended. `state: built` means the main thread can verify against the existing artifacts and serve run-grade immediately — the recovery path for an upgrade lost with a dead session.
 
-## 6. Survey just enough to ground the answer (contract:provisional-first)
+## 6. Survey just enough to ground the answer (contract:provisional-first, contract:readme-first)
 
-Survey what the question implicates: README, top-level structure, `git log -1`, then the files it points at — read what it needs, not a fixed checklist. The main thread answers first from what it already knows and sharpens from the source as you ground it, saying how it knows each claim ("recalling, unverified" vs "read it at `src/lib.py:12`" vs "ran it, saw …"). For an overview that grounded knowledge IS the delivered answer. Return the grounded summary plus any correction the source forces.
+Survey what the question implicates: README, top-level structure, `git log -1`, then the files it points at — read what it needs, not a fixed checklist.
+
+**For an overview, fetch — don't clone (contract:readme-first).** Resolve the HEAD sha once (`gh api repos/<owner>/<repo>` for the default branch + description, then the commit sha — that sha is the pin), and fetch the README plus the few load-bearing files at that sha via `gh api` / `raw.githubusercontent.com`. Reading those is enough to ground an overview; a full clone of a fat repo just to read a handful of files is the 2.5-minute cost the developer felt. Clone (§5) only when the altitude escalates to set-up / does-it-work, where a build needs a working tree. Citations still carry the real pin (`path:Lstart-Lend@sha12` from the resolved sha).
+
+The main thread answers first — from what it already knows, or from a quick README/docs fetch when it doesn't (contract:readme-first) — and sharpens from the source as you ground it, saying how it knows each claim ("going by its README" vs "read it at `src/lib.py:12`" vs "ran it, saw …"). README/docs claims are docs-grade (the project's own words, not verified); a file you actually read is higher. For an overview that grounded knowledge IS the delivered answer. Return the grounded summary plus any correction the source forces — especially where the source contradicts the README.
 
 ## 9. Persist the map, finalize the log — silently
 
-Bookkeeping the developer never sees: narrate none of it. After a cold run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at its full identity path inside the build dir — `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md` — matching the moved path the validator checks. Then validate:
+Bookkeeping the developer never sees: narrate none of it. A **fetch-grounded overview persists no map** (contract:readme-first): it cloned nothing, so there is no working tree for the validator's `--clone` check and nothing worth amortizing — finalize the log (`completed`, `--sha` the resolved pin, no `--digest`) and stop. The map is for cold runs that cloned. After a cold run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at its full identity path inside the build dir — `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md` — matching the moved path the validator checks. Then validate:
 
 ```
 scripts/validate-digest <staged.md> --clone <clone-dir>
