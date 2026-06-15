@@ -170,20 +170,48 @@ function isInjectedTurn(text: string): boolean {
 }
 
 /**
+ * A `/skill <args>` invocation carries the developer's REAL question in
+ * `<command-args>` (the wrapper turn) and again after `ARGUMENTS:` (the
+ * skill-expansion turn). Both look "injected" but the question is theirs — pull
+ * it so a `/tesser <question>` session is graded against the question, not
+ * dropped as boilerplate (the "no gradable answer turns" failure). Returns null
+ * for a plain `claude -p` turn (which already IS the question).
+ */
+function extractInvokedQuestion(text: string): string | null {
+  const m = text.match(/<command-args>([\s\S]*?)<\/command-args>/);
+  if (m && m[1].trim()) return m[1].trim();
+  if (/\bARGUMENTS:/.test(text)) {
+    const tail = text.split(/\bARGUMENTS:[ \t]*/).pop()?.trim();
+    if (tail) return tail;
+  }
+  return null;
+}
+
+/**
  * Segment the session into (question → answer) turns from the primary question
  * onward. A "question" is a REAL human user turn — tool-result turns flatten to
- * "" and are skipped, so they don't create spurious boundaries. Each answer is
- * every assistant text block between that question and the next human turn, in
- * order, with the narration lead KEPT: the judge must evaluate what the dev read
- * (an "I'll use the X skill" opener is a principle-1 violation, not preamble to
- * strip). One turn for an overview, several for a deep dive — never one blob.
+ * "" and are skipped, so they don't create spurious boundaries. A `/tesser
+ * <question>` invocation IS a question turn (the args are extracted), and the
+ * wrapper + skill-expansion pair that carry the same args are deduped to one.
+ * Each answer is every assistant text block between that question and the next
+ * human turn, in order, with the narration lead KEPT: the judge must evaluate
+ * what the dev read (an "I'll use the X skill" opener is a principle-1
+ * violation, not preamble to strip). One turn for an overview, several for a
+ * deep dive — never one blob.
  */
 export function answerTurns(view: SessionView, override?: number): AnswerTurn[] {
   const qi = questionTurnIndex(view, override);
   const startTs = view.userTurns[qi]?.ts;
-  const questions = view.userTurns.filter(
-    (t) => t.text.trim() !== "" && !isInjectedTurn(t.text) && (!startTs || t.ts >= startTs),
-  );
+  const questions: { ts: Date; text: string }[] = [];
+  for (const t of view.userTurns) {
+    if (t.text.trim() === "" || (startTs && t.ts < startTs)) continue;
+    const invoked = extractInvokedQuestion(t.text);
+    const text = invoked ?? (isInjectedTurn(t.text) ? null : t.text.trim());
+    if (!text) continue;
+    // Dedupe the wrapper turn + the skill-expansion turn (same args, back to back).
+    if (questions.length && questions[questions.length - 1].text === text) continue;
+    questions.push({ ts: t.ts, text });
+  }
   const turns: AnswerTurn[] = [];
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];

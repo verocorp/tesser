@@ -29,7 +29,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import { parseSession, questionTurnIndex } from "./parse.ts";
+import { parseSession, questionTurnIndex, answerTurns } from "./parse.ts";
 import {
   scoreSession,
   scoreFaster,
@@ -100,6 +100,33 @@ describe("parse + question-turn selection", () => {
       { role: "assistant", text: ans(300), t: 12 },
     ]);
     expect(parseSession(p).assistantBlocks).toHaveLength(1);
+  });
+
+  // Regression: a `/tesser <question>` invocation carries the dev's question in
+  // <command-args> (wrapper) and ARGUMENTS: (skill expansion). Both LOOK injected;
+  // dropping them gave "no gradable answer turns" on every real /tesser session
+  // (judge run 2026-06-15). The question must be extracted, and the wrapper +
+  // expansion deduped to ONE gradable turn.
+  it("grades a /tesser invocation: extracts the question, dedupes wrapper+expansion", () => {
+    const p = synth([
+      { role: "user", text: "<command-message>tesser</command-message>\n<command-name>/tesser</command-name>\n<command-args>did my celery task actually run?</command-args>", t: 0 },
+      { role: "user", text: "Base directory for this skill: /x\nYou are a dependency expert...\nARGUMENTS: did my celery task actually run?", t: 1 },
+      { role: "assistant", text: "Yes — it ran. " + ans(300), t: 9 },
+    ]);
+    const turns = answerTurns(parseSession(p));
+    expect(turns).toHaveLength(1); // not 0 (dropped), not 2 (wrapper + expansion double-counted)
+    expect(turns[0].question).toBe("did my celery task actually run?");
+    expect(turns[0].answer).toContain("Yes — it ran.");
+  });
+
+  it("a plain (claude -p) question still grades as one turn", () => {
+    const p = synth([
+      { role: "user", text: "what does this library do?", t: 0 },
+      { role: "assistant", text: ans(300), t: 8 },
+    ]);
+    const turns = answerTurns(parseSession(p));
+    expect(turns).toHaveLength(1);
+    expect(turns[0].question).toBe("what does this library do?");
   });
 });
 
