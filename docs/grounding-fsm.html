@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tesser — grounding-source state machine</title>
+<style>
+  :root{ --bg:#0f1419; --panel:#161b22; --ink:#e6edf3; --muted:#9aa7b4; --line:#3b4654; --accent:#58a6ff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:26px 32px 6px}
+  h1{margin:0 0 4px;font-size:22px}
+  h2{font-size:16px;margin:30px 0 6px;color:var(--accent)}
+  .sub{color:var(--muted);max-width:1000px}
+  .wrap{padding:8px 32px 56px}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0 6px;color:var(--muted);font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:3px;display:inline-block;border:1px solid #00000040}
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:6px;overflow:auto}
+  .src-note{color:var(--muted);font-size:12.5px;margin:10px 0 0}
+  table{border-collapse:collapse;margin-top:14px;width:100%;max-width:1080px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;font-size:13px;vertical-align:top}
+  th{background:#1c2230;color:var(--muted);font-weight:600}
+  code{background:#1c2230;padding:1px 5px;border-radius:4px;font-size:12px}
+  details{margin-top:22px}
+  summary{cursor:pointer;color:var(--accent)}
+  pre{background:#0b0f14;border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>tesser — grounding-source state machine</h1>
+  <div class="sub">Single source of truth: the one Mermaid block below (also shown as text under "Mermaid source").
+  mermaid.js renders it; the HTML is just the shell. To change the flow, edit the one block — no coordinates, no
+  second copy. Node colors: <b>deterministic</b> / <b>◇ network call</b> / <b>● LLM judgment</b>. The two tables key
+  their rows to the node IDs.</div>
+</header>
+<div class="wrap">
+  <div class="legend">
+    <span><i class="sw" style="background:#2d3340"></i>deterministic — no network</span>
+    <span><i class="sw" style="background:#1b4d6b"></i><b style="color:#79c0ff">◇ external API call</b></span>
+    <span><i class="sw" style="background:#4a2d63"></i><b style="color:#d2a8ff">● LLM judgment</b> (no API unless noted)</span>
+    <span><i class="sw" style="background:#1f6feb"></i>decision</span>
+    <span><i class="sw" style="background:#5a3d1a"></i><b style="color:#ffe9c2">confirm with dev</b> (answer-branched)</span>
+    <span><i class="sw" style="background:#1a7f4b"></i>answered</span>
+    <span><i class="sw" style="background:#9a6700"></i>degraded / confirm</span>
+    <span><i class="sw" style="background:#8b2c2c"></i>no answer</span>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  %% ===== entry: ONE model interpretation; model knowledge is an INPUT, never a gate =====
+  Q(["developer's natural-language question"]):::ext
+  INT["● LLM: interpret the question → #123;reference, altitude#125;<br/>reference = URL if recalled (Mem0→mem0ai/mem0) · else exact pkg+ecosystem · else a bare token it does NOT recognize · NO API · ONE step"]:::llm
+  Q --> INT
+  INT -- "subject unclear" --> CSUBJ{"confirm: which dependency do you mean?"}:::ask
+  CSUBJ -- "dev clarifies" --> CLS
+  CSUBJ -- "can't say" --> T0
+  INT -- "per ref" --> CLS
+
+  %% ===== S0 classify (deterministic) — every path converges on ls-remote =====
+  CLS{"S0.1 classify the reference · deterministic"}:::dec
+  CLS -- "URL (dev-given or recalled)" --> LS
+  CLS -- "exact pkg + ecosystem" --> REG["◇ registry resolve → JSON → repo URL"]:::net
+  REG --> LS
+  CLS -- "bare token / model doesn't know it" --> SRCH["◇ search → JSON candidates"]:::net
+  SRCH --> PICK{"● LLM: pick a candidate<br/>reads search JSON (new info)"}:::llm
+  PICK -- "picked" --> LS
+  PICK -- "none / unsure" --> ASKURL{"confirm: what's the repo URL?"}:::ask
+  ASKURL -- "dev gives URL" --> LS
+  ASKURL -- "dev doesn't know" --> T0["T0 · unresolvable"]:::bad
+
+  LS{"◇ verify + resolve pin · git ls-remote HEAD → refs/pin | 404"}:::net
+  LS -- "resolves ✓" --> NORM
+  LS -. "404 · recalled URL was wrong" .-> SRCH
+  LS -. "404 · dev-given URL" .-> S8
+  NORM["S0.2 normalize_identity() · SHARED w/ validate-digest (D38)<br/>https/ssh/scp/file:// → one identity"]:::det
+  NORM --> IDOUT[/"identity + clone URL · provenance carried: dev-given | model-originated"/]:::good
+
+  %% ===== reuse-first gates (no network) =====
+  IDOUT --> S1{"S1 · local clone exists? · fs, no net"}:::dec
+  S1 -- "exists" --> T1["T1 · serve from local clone · pin=rev-parse · offline · async drift"]:::good
+  S1 -- "no" --> S2{"S2 · validated map exists? · fs, no net"}:::dec
+  S2 -- "exists" --> T2["T2 · serve from map · async drift"]:::good
+  S2 -- "no" --> S3{"S3 · altitude?"}:::dec
+
+  %% ===== cold ladder: cheapest-first =====
+  S3 -- "setup / does-it-work" --> R3
+  S3 -- "overview" --> R1["◇ R1 · README · ls-remote + raw GET → file bytes | 404"]:::net
+  R1 --> CORR{"● LLM: corroboration — only if reference was model-originated<br/>README match what the dev asked about? (name-match only when the model doesn't know the lib)"}:::llm
+  CORR -- "match · or dev-given (skip)" --> SUF1
+  CORR -- "mismatch" --> CMATCH{"confirm: found X, looks like a different project — right repo?"}:::ask
+  CMATCH -- "yes" --> SUF1
+  CMATCH -- "no" --> SRCH
+  CMATCH -- "dev gives URL" --> LS
+  SUF1{"● LLM: enough to answer?"}:::llm
+  SUF1 -- "yes" --> T3["T3 · answered from README · docs-grade"]:::good
+  SUF1 -- "no" --> R2["◇ R2 · treeless / sparse clone<br/>git clone --depth 1 --filter=blob:none → working tree"]:::net
+  R2 --> SUF2{"● LLM: enough to answer?"}:::llm
+  SUF2 -- "yes" --> T5["T5 · answered from source · inspect-grade · persist map"]:::good
+  SUF2 -- "need build" --> R3["◇ R3 · clone + build<br/>git clone (full if needed) + build cmds → tree + exit codes"]:::net
+  R3 --> VER{"● LLM: verify by use · reads exit codes / tests"}:::llm
+  VER -- "exit 0" --> T6["T6 · verified by running · run-grade · supersede · persist map"]:::good
+  VER -- "nonzero" --> T7["T7 · build failed · completed-unverified · report cmd+exit"]:::warn
+
+  %% ===== inaccessible =====
+  R1 -. "404 / auth (any cold rung)" .-> S8{"S8 · inaccessible · ◇ retry with AMBIENT creds only"}:::net
+  S8 -- "works" --> R1
+  S8 -- "fails" --> T8["T8 · can't reach · never 'doesn't exist'"]:::warn
+
+  classDef ext  fill:#21262d,stroke:#3b4654,color:#e6edf3;
+  classDef det  fill:#2d3340,stroke:#3b4654,color:#e6edf3;
+  classDef net  fill:#1b4d6b,stroke:#1f6feb,color:#cfe9ff;
+  classDef llm  fill:#4a2d63,stroke:#8957e5,color:#eccfff;
+  classDef dec  fill:#1f6feb,stroke:#1b2330,color:#ffffff;
+  classDef ask  fill:#5a3d1a,stroke:#d29922,color:#ffe9c2;
+  classDef good fill:#1a7f4b,stroke:#3b4654,color:#eafff3;
+  classDef warn fill:#9a6700,stroke:#3b4654,color:#fff7e6;
+  classDef bad  fill:#8b2c2c,stroke:#3b4654,color:#ffecec;
+    </pre>
+  </div>
+  <p class="src-note">Reuse-first (S1/S2 before any call), pin-first (pin = rev-parse HEAD, never chase remote HEAD),
+  credentials-free (S8 uses only creds already on the machine), drift async, every terminal finalizes the log —
+  these are invariants on every path.</p>
+
+  <h2>Every external API call (where the network is touched) — by node</h2>
+  <table>
+    <tr><th>Node</th><th>Call</th><th>Response type</th></tr>
+    <tr><td><code>REG</code></td><td><code>GET registry.npmjs.org</code> · <code>pypi.org/pypi/&lt;p&gt;/json</code> · <code>crates.io/api/v1/crates/&lt;p&gt;</code></td><td><b>JSON</b> metadata → repo URL</td></tr>
+    <tr><td><code>LS</code></td><td><code>git ls-remote &lt;url&gt; HEAD</code></td><td><b>git refs</b> (text) → the pin SHA, or 404</td></tr>
+    <tr><td><code>SRCH</code></td><td><code>GET /search/repositories?q=</code> (gh / host API)</td><td><b>JSON</b> ranked candidates</td></tr>
+    <tr><td><code>R1</code></td><td><code>git ls-remote</code> + <code>GET raw.githubusercontent.com/&lt;o&gt;/&lt;r&gt;/&lt;sha&gt;/README*</code></td><td><b>git refs</b> + <b>raw file bytes</b>, or 404</td></tr>
+    <tr><td><code>R2</code></td><td><code>git clone --depth 1 --filter=blob:none</code></td><td><b>git working tree</b> (tree now, blobs on demand)</td></tr>
+    <tr><td><code>R3</code></td><td><code>git clone</code> (full if build needs history) + build cmds</td><td><b>working tree</b> + process <b>exit codes / logs</b></td></tr>
+    <tr><td><code>S8</code></td><td>retry the above with ambient creds (git helper / ssh-agent / existing gh login)</td><td>as above, or persistent 401/404</td></tr>
+  </table>
+
+  <h2>Every LLM judgment (no API call, except where noted) — by node</h2>
+  <table>
+    <tr><th>Node</th><th>Input the model reads</th><th>Output</th><th>API?</th></tr>
+    <tr><td><code>INT</code></td><td>the developer's raw question + the model's weights</td><td>ONE step: the <b>reference</b> (a URL if the model recalls one, else the bare name) + altitude — an <b>interpretation</b>. The name/URL is verified downstream by <code>LS</code>; only the dev can confirm the <b>subject</b>. (This is where the old "extract" and "propose URL" merged — same weights, same input, one act.)</td><td><b>none</b></td></tr>
+    <tr><td><code>PICK</code></td><td>the <code>SRCH</code> JSON (information that did NOT exist at <code>INT</code> time — why it's a separate step)</td><td>chosen URL, or "ask the dev"</td><td>none</td></tr>
+    <tr><td><code>CORR</code></td><td>the fetched README</td><td>match / mismatch ("you asked X, this looks like Y")</td><td>none</td></tr>
+    <tr><td><code>SUF1</code>/<code>SUF2</code></td><td>the fetched README / source</td><td>answer now, or escalate one rung</td><td>none</td></tr>
+    <tr><td><code>VER</code></td><td>build output, exit codes, tests</td><td>which rung ran; the run-grade claim</td><td>none</td></tr>
+  </table>
+
+  <h2>Dev confirmations (each a distinct question with answer-branched outflow) — by node</h2>
+  <table>
+    <tr><th>Node</th><th>Fires when</th><th>Question</th><th>Answer → next</th></tr>
+    <tr><td><code>CSUBJ</code></td><td><code>INT</code> can't tell which dependency is meant</td><td>"which dependency do you mean?"</td><td>clarifies → <code>classify</code> · can't say → <code>T0</code></td></tr>
+    <tr><td><code>ASKURL</code></td><td>search found nothing / no confident pick</td><td>"what's the repo URL?"</td><td>gives URL → <code>ls-remote</code> · doesn't know → <code>T0</code></td></tr>
+    <tr><td><code>CMATCH</code></td><td>README doesn't match a model-originated reference</td><td>"found X, looks like a different project — right repo?"</td><td>yes → <code>SUF1</code> · no → <code>search</code> · gives URL → <code>ls-remote</code></td></tr>
+  </table>
+
+  <details>
+    <summary>Mermaid source (the single source of truth — copy/paste into mermaid.live too)</summary>
+    <pre id="src"></pre>
+  </details>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose', flowchart: { useMaxWidth: true, htmlLabels: true } });
+  // echo the one source into the <details> block so there is literally one copy
+  document.getElementById('src').textContent = document.querySelector('pre.mermaid').textContent.trim();
+</script>
+</body>
+</html>
