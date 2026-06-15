@@ -1,19 +1,19 @@
 # tesser
 
-You know how your coding agent will confidently explain how some library works — and you can't tell whether it actually knows or it's guessing, so you end up double-checking it yourself? tesser is built for exactly that moment: instead of trusting docs or its own memory, it answers by actually cloning, building, and running the code.
+You know how your coding agent will confidently explain how some library works — and you can't tell whether it actually knows or it's guessing, so you end up double-checking it yourself? tesser is built for exactly that moment: instead of trusting docs or its own memory, it answers by cloning, building, and running the code.
 
 tesser is a Claude Code skill. You ask a question about an unfamiliar dependency; it answers fast, then grounds that answer in the real source and corrects itself if the source disagrees.
 
 ## What it does
 
-tesser is an early alpha. The behaviors below are what it aims for and usually delivers, not promises — and when it falls short or hits a limit, it's built to tell you rather than paper over it.
+tesser is an early alpha.
 
-- **Answers first, in plain language.** You get the answer immediately, with a clear sense of how it knows each part — whether it ran the code, read it, or is going from memory — and never made to sound more certain than it is. No jargon, and nothing to wait on.
+- **Answers first, in plain language.** You get the answer immediately, with a clear sense of how it knows each part (whether it ran the code, read it, or is going from memory), and never made to sound more certain than it is. No jargon, no waiting.
 - **Checks the answer against the real source, in the background.** It works from one specific commit of the code. If reading the source changes the answer, a follow-up corrects it; if the source confirms it, tesser stays quiet — an answer it already gave you is never silently edited.
-- **Scales the work to the question.** An overview just reads the source. "How do I set it up" adds a quick build to confirm it installs. "Does it actually work" runs it end-to-end, with no credentials needed — a runnable binary if there is one, else the test suite, else a minimal example — and shows you the commands it ran and whether they passed.
+- **Scales the work to the question.** An overview just reads the source. "How do I set it up" adds a quick build to confirm it installs. "Does it actually work" runs it end-to-end with no credentials needed: a runnable binary if there is one, else the test suite, else a minimal example. Either way it shows you the commands it ran and whether they passed.
 - **Pins and reuses.** The first time it clones a library, it locks onto one specific commit and reuses that from then on — it never quietly jumps to a newer version, and only moves forward when you ask. If your session ends mid-build, the next run picks up where it left off.
-- **Points to the exact code behind a claim.** Every claim the answer rests on is backed by a file and line number in that specific commit, but that detail stays out of the chat unless the file and line *is* the answer — so the conversation stays readable.
-- **Knows its limits and says so.** When a library caps how far it can go — a closed hosted service it can describe but not run — it tells you up front what it can confirm versus only describe, instead of pretending.
+- **Points to the exact code behind a claim.** Every claim the answer rests on has a file and line number in that commit, but that detail stays out of the chat unless the file and line *is* the answer, so the conversation stays readable.
+- **Knows its limits and says so.** When a library caps how far it can go (say, a closed hosted service it can describe but not run), it tells you up front what it can confirm versus only describe, instead of pretending.
 
 ## Install
 
