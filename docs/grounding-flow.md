@@ -14,6 +14,12 @@ refer to that doc.
 **Status:** wiring draft. Internals are TBD (the next increment, per phase). The
 claim-ladder it rests on is a working model, not locked (see the dimensions doc).
 
+**Rendered view:** `grounding-flow.html` (open in a browser) shows the graph, generated
+from the edge list below via `grounding-flow.dot` → `grounding-flow.svg`
+(`dot -Tsvg grounding-flow.dot -o grounding-flow.svg`). Graphviz, not Mermaid — Mermaid's
+dagre layout tangled the back-edges. The `.dot` is the picture's source; this doc's edge
+list is the design's source.
+
 ---
 
 ## The six black boxes
