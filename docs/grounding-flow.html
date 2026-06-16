@@ -47,10 +47,11 @@
   <div class="diagram">
     <img src="grounding-flow.svg" alt="grounding flow state diagram" />
   </div>
-  <p class="note">Solid edges = control flow; dashed = an event/aside. The two-beat is the
-  purple <code>P4</code> self-loop (beat-2 re-fire) plus the dashed <code>P0→P4</code>
-  (known-dep recall beat-1). Red edges are the back-edges into identity resolution. The
-  foreground/background line is wherever beat-1 first fires.</p>
+  <p class="note">Three rails: the <b>backbone</b> (the spine P0→P4, thick grey, left) is the
+  main structure; the <b>events</b> (dev confirmations, middle) and <b>terminals</b> (right)
+  are the asides. Dashed grey = an "ask the dev" branch; red = the back-edge into identity
+  resolution; purple = the two-beat (the dashed <code>P0→P4</code> known-dep beat-1 and the
+  <code>P4</code> beat-2 self-loop). The foreground/background line is wherever beat-1 fires.</p>
 </div>
 </body>
 </html>

@@ -1,70 +1,58 @@
 // GENERATED from the edge list in grounding-flow.md — do not hand-edit to change the
 // design; edit the contract and regenerate.  Render: dot -Tsvg grounding-flow.dot -o grounding-flow.svg
+// Layout: three rails — backbone (spine, left) | events (middle) | terminals (right).
 digraph grounding {
-  rankdir=TB;
-  bgcolor="#0f1419";
-  splines=true;
-  nodesep=0.45;
-  ranksep=0.6;
-  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11,
-        color="#3b4654", penwidth=1.4, fontcolor="#e6edf3", margin="0.20,0.12"];
-  edge [color="#7d8a99", fontname="Helvetica", fontsize=9, fontcolor="#aab6c2", penwidth=1.1];
+  rankdir=TB; bgcolor="#0f1419"; splines=polyline;
+  nodesep=0.5; ranksep=0.7;
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12,
+        color="#3b4654", penwidth=1.4, fontcolor="#e6edf3", margin="0.22,0.13", width=2.5];
+  edge [fontname="Helvetica", fontsize=10, fontcolor="#aab6c2", arrowsize=0.85];
 
-  // ── entry ──
-  Q   [label="developer's question", shape=box, style="rounded,filled", fillcolor="#21262d"];
+  // ── BACKBONE (left): straight aligned spine ──
+  Q  [label="developer's question", fillcolor="#21262d"];
+  P0 [label="P0 · Interpret\nrecall what you know", fillcolor="#1b4d6b", fontcolor="#cfe9ff", color="#1f6feb"];
+  P1 [label="P1 · Resolve\nidentity + pinned SHA", fillcolor="#2d3340"];
+  P2 [label="P2 · Reuse\nwhat's on disk", fillcolor="#2d3340"];
+  P3 [label="P3 · Gather\ndocs → inspect → run", fillcolor="#1b4d6b", fontcolor="#cfe9ff", color="#1f6feb"];
+  P4 [label="P4 · Join\ncalibrated answer", fillcolor="#4a2d63", fontcolor="#eccfff", color="#8957e5"];
+  TA [label="answered", fillcolor="#1a7f4b", fontcolor="#eafff3"];
+  Q -> P0 -> P1 -> P2 -> P3 -> P4 -> TA [color="#aab6c2", penwidth=2.4, weight=100, arrowsize=0.9];
 
-  // ── phases (blue = gatherer, grey = phase, purple = join) ──
-  P0  [label="P0 · Interpret  (recall gatherer)\n→ reference · altitude · cardinality · recall claims",
-       fillcolor="#1b4d6b", fontcolor="#cfe9ff", color="#1f6feb"];
-  P1  [label="P1 · Resolve\nreference → identity + pin", fillcolor="#2d3340"];
-  P2  [label="P2 · Reuse  (reuse-first, offline)\nidentity → what prior runs left on disk", fillcolor="#2d3340"];
-  P3  [label="P3 · Gather  (climb docs→inspect→run)\nforeground to beat-1, then background",
-       fillcolor="#1b4d6b", fontcolor="#cfe9ff", color="#1f6feb"];
-  P4  [label="P4 · Join  (the synthesizer)\nassemble claims → calibrated answer",
-       fillcolor="#4a2d63", fontcolor="#eccfff", color="#8957e5"];
+  // ── MIDDLE rail: dev-confirmation events ──
+  CSUBJ  [label="CSUBJ\nwhich dependency?", shape=hexagon, fillcolor="#5a3d1a", fontcolor="#ffe9c2", color="#d29922", width=1.9];
+  ASKURL [label="ASKURL\nrepo URL?",        shape=hexagon, fillcolor="#5a3d1a", fontcolor="#ffe9c2", color="#d29922", width=1.9];
+  CMATCH [label="CMATCH\nright repo?",      shape=hexagon, fillcolor="#5a3d1a", fontcolor="#ffe9c2", color="#d29922", width=1.9];
 
-  // ── dev-confirmation events ──
-  CSUBJ  [label="CSUBJ\nwhich dependency?", shape=hexagon, fillcolor="#5a3d1a", fontcolor="#ffe9c2", color="#d29922"];
-  ASKURL [label="ASKURL\nrepo URL?",        shape=hexagon, fillcolor="#5a3d1a", fontcolor="#ffe9c2", color="#d29922"];
-  CMATCH [label="CMATCH\nright repo?",      shape=hexagon, fillcolor="#5a3d1a", fontcolor="#ffe9c2", color="#d29922"];
+  // ── RIGHT rail: terminals, stacked into a column ──
+  TR  [label="can't reach",          fillcolor="#9a6700", fontcolor="#fff7e6", width=1.7];
+  TCU [label="completed-unverified", fillcolor="#9a6700", fontcolor="#fff7e6", width=1.7];
+  TU  [label="unresolvable",         fillcolor="#8b2c2c", fontcolor="#ffecec", width=1.7];
 
-  // ── terminals ──
-  TA  [label="answered\ndocs / inspect / run", fillcolor="#1a7f4b", fontcolor="#eafff3"];
-  TR  [label="can't reach",          fillcolor="#9a6700", fontcolor="#fff7e6"];
-  TCU [label="completed-unverified", fillcolor="#9a6700", fontcolor="#fff7e6"];
-  TU  [label="unresolvable",         fillcolor="#8b2c2c", fontcolor="#ffecec"];
+  { rank=same; P0; CSUBJ; }
+  { rank=same; P1; ASKURL; TR; }
+  { rank=same; P3; CMATCH; TCU; }
+  { rank=same; P4; TU; }
+  // stack terminals vertically (invisible) so they form a clean right column
+  TR -> TCU -> TU [style=invis, weight=50];
+  // keep events column left of terminals
+  CSUBJ -> ASKURL -> CMATCH [style=invis, weight=20];
 
-  // ── main spine (constraint edges set the ranks) ──
-  Q  -> P0;
-  P0 -> P1 [label="per ref  (N>1 fans out)"];
-  P1 -> P2 [label="resolved + pinned"];
-  P2 -> P3 [label="clone-hit / miss"];
-  P3 -> P4 [label="each rung feeds the join"];
-  P4 -> TA [label="joined + done"];
+  // branch edges — dashed = "ask the dev"; thin grey = continue / terminal
+  P0 -> CSUBJ  [style=dashed, color="#7d8a99", label="ambiguous"];
+  CSUBJ -> P1  [color="#7d8a99", label="clarified"];
+  CSUBJ -> TU  [color="#7d8a99", label="can't say"];
+  P1 -> ASKURL [style=dashed, color="#7d8a99", label="no pick"];
+  ASKURL -> P1 [color="#7d8a99", label="URL"];
+  ASKURL -> TU [color="#7d8a99", label="no idea"];
+  P1 -> TR     [color="#7d8a99", label="404 dev-given"];
+  P1 -> P1     [color="#7d8a99", label="404 recalled"];
+  P3 -> CMATCH [style=dashed, color="#7d8a99", label="mismatch"];
+  CMATCH -> P3 [color="#7d8a99", label="yes"];
+  P3 -> TCU    [color="#7d8a99", label="build fails"];
 
-  // ── P0 : events + known-dep beat-1 ──
-  P0 -> CSUBJ  [style=dashed, label="subject ambiguous"];
-  CSUBJ -> P1  [label="clarified"];
-  CSUBJ -> TU  [label="can't say"];
-  P0 -> P4     [style=dashed, label="known dep · recall = beat-1", constraint=false];
-
-  // ── P1 : resolution branches ──
-  P1 -> P1     [label="404 recalled → re-search", constraint=false];
-  P1 -> TR     [label="404 dev-given (after S8)"];
-  P1 -> ASKURL [style=dashed, label="search empty / no pick"];
-  ASKURL -> P1 [label="URL"];
-  ASKURL -> TU [label="doesn't know"];
-
-  // ── P2 : map-hit skip ──
-  P2 -> P4     [label="map-hit  (SKIP P3)", constraint=false];
-
-  // ── P3 : gather branches + back-edge ──
-  P3 -> CMATCH [style=dashed, label="corroboration mismatch"];
-  CMATCH -> P3 [label="yes"];
-  CMATCH -> P1 [label="no  (back-edge)", constraint=false, color="#c97a7a", fontcolor="#e6a6a6"];
-  CMATCH -> P1 [label="gives URL", constraint=false, color="#c97a7a", fontcolor="#e6a6a6"];
-  P3 -> TCU    [label="build/run nonzero"];
-
-  // ── P4 : beat-2 supersede ──
-  P4 -> P4     [label="higher grade changes answer (beat-2)", constraint=false, color="#b78fd6", fontcolor="#d2a8ff"];
+  // colored: the only non-grey edges (back-edge + beats + skip)
+  CMATCH -> P1 [color="#c97a7a", fontcolor="#e6a6a6", label="no / URL"];
+  P2 -> P4     [color="#7d8a99", style=dashed, label="map-hit (skip)"];
+  P0 -> P4     [color="#b78fd6", fontcolor="#d2a8ff", style=dashed, label="known dep: beat-1"];
+  P4 -> P4     [color="#b78fd6", fontcolor="#d2a8ff", label="beat-2"];
 }
