@@ -37,10 +37,12 @@ because it's the channel that couples one invocation to the next.
 
 ---
 
-## Settled foundation — knowledge is the bottom of ONE claim-ladder (do not re-derive)
+## Foundation — two layers, one locked, one a working model
 
-This was settled in the locked kernel; we re-derived it once by accident (2026-06-16) and
-must not again. The canonical statements:
+Keep these straight — the first is settled kernel, the second is a model that *fits well
+but is NOT locked* and must not propagate (here or in any brain compile) as gospel.
+
+### Locked (brain kernel — do not re-derive)
 
 - **`brain/originals/everything-is-a-claim.md:15`** — *"a vendor's marketing assertion
   and the real-world evidence about it are the same kind of object — a **claim** —
@@ -48,23 +50,29 @@ must not again. The canonical statements:
 - **`brain/originals/trust-a-claim-as-much-as-it-deserves.md:144-149`** — *"Weights are a
   source… running the search converts the uncheckable weights-claim into a citeable
   source — Obligation A happening in real time."*
+- **`brain/originals/findings-are-max-entropy-distributions.md`** — overstatement =
+  claiming a distribution with *less entropy than your source warrants*.
 
-What it means for the flow:
+So: **model knowledge is not categorically different from grounded sources — it is a
+*source* of claims, differentiated only by trust.** That much is settled, and we
+re-derived it once by accident (2026-06-16); don't again.
 
-- **Model knowledge is not categorically different from grounded sources — it's the
-  lowest-trust source on the *same* ladder.** `recall → docs → inspect → run` is one
-  ladder of claim-sources ordered by trust (= the grade axis, with knowledge at the
-  bottom).
-- **Grounding = upgrading a claim to a higher-trust source.** It does not replace a
-  belief with a check. Climbing the ladder either *raises confidence* in the same claim
-  (silent) or *contradicts it* (supersede). The D48 run-grade verification is simply the
-  top source, with proxy-trust as its caveat.
-- **Formal twin** (`brain/originals/findings-are-max-entropy-distributions.md`):
-  overstatement = claiming a distribution with *less entropy than your source warrants*.
-  A gap-flagged short answer outscores a confident long one.
+### Working model for the flow (fits well, NOT locked — ⚠ do not propagate as settled)
 
-This is *why* the two-beat is one mechanism, not two tracks — see the concurrency model
-below.
+A *candidate operational synthesis* layered on the locked kernel, adopted because it fits
+the flow cleanly, **not yet validated**:
+
+- The claim-sources form a single **ordered ladder** `recall → docs → inspect → run`
+  (trust-ascending; knowledge at the bottom). *(The three upper grades are spec'd in
+  `digest-schema.yaml:70`; "recall" as a rung-0 below them, and the four as one climbable
+  ladder, is the un-locked part.)*
+- **Grounding = climbing the ladder** — upgrading a claim to a higher-trust source, which
+  either *raises confidence* (silent) or *contradicts* (supersede).
+- The two beats are two **joins** over this ladder (concurrency model below).
+
+This model is why the two-beat reads as one mechanism rather than two tracks — but it's a
+hypothesis that earns its keep by use. If a brain compile touches it, tag it hypothesis,
+not finding.
 
 ---
 
@@ -134,9 +142,10 @@ terminal, and the cross-invocation coupling channel.
 
 ## Concurrency model — gather → join (the two beats are two joins)
 
-Falls out of the kernel (`everything-is-a-claim.md:24`: *"aggregate claims; do not
-synthesize — push synthesis to the leaf"*). It is **not** two parallel tracks to
-synchronize. It is:
+The gather/join *shape* falls out of the kernel (`everything-is-a-claim.md:24`:
+*"aggregate claims; do not synthesize — push synthesis to the leaf"*); the specific
+source-rungs it gathers over are the **working model above** (fits, not locked). It is
+**not** two parallel tracks to synchronize. It is:
 
 - **Gatherers** — separate, independent producers, one per source on the ladder:
   `recall` (weights) · `docs` (README/docs at a pin) · `inspect` (source) · `run`
