@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tesser — grounding flow (generated view)</title>
+<style>
+  :root{ --bg:#0f1419; --panel:#161b22; --ink:#e6edf3; --muted:#9aa7b4; --line:#3b4654; --accent:#58a6ff; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:26px 32px 6px}
+  h1{margin:0 0 4px;font-size:22px}
+  .sub{color:var(--muted);max-width:1000px}
+  .wrap{padding:8px 32px 56px}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 0 6px;color:var(--muted);font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:3px;display:inline-block;border:1px solid #00000040}
+  .diagram{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:6px;overflow:auto}
+  .note{color:var(--muted);font-size:12.5px;margin:10px 0 0}
+  code{background:#1c2230;padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>tesser — grounding flow</h1>
+  <div class="sub"><b>GENERATED VIEW</b> of the black-box phase contract in
+  <code>grounding-flow.md</code> (its consolidated edge list is the source). Do not hand-edit
+  this to change the design — edit the contract and regenerate. Eventual goal: a script
+  emits this from the edge list so there is exactly one source.</div>
+</header>
+<div class="wrap">
+  <div class="legend">
+    <span><i class="sw" style="background:#1b4d6b"></i>gatherer (recall / docs·inspect·run)</span>
+    <span><i class="sw" style="background:#2d3340"></i>phase</span>
+    <span><i class="sw" style="background:#4a2d63"></i>join (the synthesizer · fired ≥1×)</span>
+    <span><i class="sw" style="background:#5a3d1a"></i>dev confirmation (event)</span>
+    <span><i class="sw" style="background:#1a7f4b"></i>answered</span>
+    <span><i class="sw" style="background:#9a6700"></i>warn terminal</span>
+    <span><i class="sw" style="background:#8b2c2c"></i>no answer</span>
+  </div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TD
+  Q(["developer's question"]):::entry --> P0
+
+  P0["P0 · Interpret — recall gatherer<br/>→ reference · altitude · cardinality · recall claims"]:::gather
+  P0 -->|"per ref (N&gt;1 fans out → join)"| P1
+  P0 -. "subject ambiguous" .-> CSUBJ{{"CSUBJ — which dependency?"}}:::event
+  P0 -. "known dep · recall = beat-1" .-> P4
+  CSUBJ -->|clarified| P1
+  CSUBJ -->|can't say| TU["unresolvable"]:::bad
+
+  P1["P1 · Resolve<br/>reference → identity + pin"]:::phase
+  P1 -->|resolved + pinned| P2
+  P1 -->|"404 · recalled → re-search"| P1
+  P1 -->|"404 · dev-given (after S8)"| TR["can't reach"]:::warn
+  P1 -. "search empty / no pick" .-> ASKURL{{"ASKURL — repo URL?"}}:::event
+  ASKURL -->|URL| P1
+  ASKURL -->|doesn't know| TU
+
+  P2["P2 · Reuse — reuse-first, offline<br/>identity → what prior runs left on disk"]:::phase
+  P2 -->|"map-hit (SKIP P3)"| P4
+  P2 -->|clone-hit / miss| P3
+
+  P3["P3 · Gather — climb docs→inspect→run<br/>foreground to beat-1, then background"]:::gather
+  P3 -->|each rung feeds the join| P4
+  P3 -. "corroboration mismatch" .-> CMATCH{{"CMATCH — right repo?"}}:::event
+  CMATCH -->|yes| P3
+  CMATCH -->|"no (back-edge)"| P1
+  CMATCH -->|gives URL| P1
+  P3 -->|build/run nonzero| TCU["completed-unverified"]:::warn
+
+  P4["P4 · Join — the synthesizer<br/>assemble claims → calibrated answer"]:::join
+  P4 -->|"higher grade changes answer (beat-2, async)"| P4
+  P4 -->|joined + gathering done| TA["answered · docs / inspect / run"]:::good
+
+  classDef entry  fill:#21262d,stroke:#3b4654,color:#e6edf3;
+  classDef phase  fill:#2d3340,stroke:#3b4654,color:#e6edf3;
+  classDef gather fill:#1b4d6b,stroke:#1f6feb,color:#cfe9ff;
+  classDef join   fill:#4a2d63,stroke:#8957e5,color:#eccfff;
+  classDef event  fill:#5a3d1a,stroke:#d29922,color:#ffe9c2;
+  classDef good   fill:#1a7f4b,stroke:#3b4654,color:#eafff3;
+  classDef warn   fill:#9a6700,stroke:#3b4654,color:#fff7e6;
+  classDef bad    fill:#8b2c2c,stroke:#3b4654,color:#ffecec;
+    </pre>
+  </div>
+  <p class="note">Solid edges = control flow; dotted = an event/aside. The two-beat is the
+  <code>P4</code> self-loop (beat-2 re-fire) plus the dotted <code>P0→P4</code> (known-dep
+  recall beat-1). The foreground/background line is wherever beat-1 first fires.</p>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', securityLevel: 'loose', flowchart: { useMaxWidth: true, htmlLabels: true } });
+</script>
+</body>
+</html>
