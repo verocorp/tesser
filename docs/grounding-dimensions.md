@@ -37,6 +37,37 @@ because it's the channel that couples one invocation to the next.
 
 ---
 
+## Settled foundation — knowledge is the bottom of ONE claim-ladder (do not re-derive)
+
+This was settled in the locked kernel; we re-derived it once by accident (2026-06-16) and
+must not again. The canonical statements:
+
+- **`brain/originals/everything-is-a-claim.md:15`** — *"a vendor's marketing assertion
+  and the real-world evidence about it are the same kind of object — a **claim** —
+  differentiated only by the trustworthiness of its source."*
+- **`brain/originals/trust-a-claim-as-much-as-it-deserves.md:144-149`** — *"Weights are a
+  source… running the search converts the uncheckable weights-claim into a citeable
+  source — Obligation A happening in real time."*
+
+What it means for the flow:
+
+- **Model knowledge is not categorically different from grounded sources — it's the
+  lowest-trust source on the *same* ladder.** `recall → docs → inspect → run` is one
+  ladder of claim-sources ordered by trust (= the grade axis, with knowledge at the
+  bottom).
+- **Grounding = upgrading a claim to a higher-trust source.** It does not replace a
+  belief with a check. Climbing the ladder either *raises confidence* in the same claim
+  (silent) or *contradicts it* (supersede). The D48 run-grade verification is simply the
+  top source, with proxy-trust as its caveat.
+- **Formal twin** (`brain/originals/findings-are-max-entropy-distributions.md`):
+  overstatement = claiming a distribution with *less entropy than your source warrants*.
+  A gap-flagged short answer outscores a confident long one.
+
+This is *why* the two-beat is one mechanism, not two tracks — see the concurrency model
+below.
+
+---
+
 ## Given (from the dev/world this turn; can change next turn)
 
 | Variable | Values | Notes |
@@ -92,12 +123,42 @@ terminal, and the cross-invocation coupling channel.
 - **Verification-contract content** — from observability + proxy-trust: the ground-truth
   signal, the lying proxies + why, agent-observable vs human-only, and on delegation the
   proactive "watch X / distrust Y" instruction.
-- **Answer + supersede** — beat-1 (fast) and beat-2 (silent confirm or superseding
-  correction), driven by pending-correction (drift / deeper-grounding / sharpenable-hedge).
+- **Answer + supersede** — the two beats are two **joins** (see the concurrency model
+  below): beat-1 joins what's gathered fast, beat-2 re-joins when a higher-trust gatherer
+  changes the answer, driven by pending-correction (drift / deeper-grounding /
+  sharpenable-hedge).
 - **Persist-or-not** *(the one deliberate retention decision)* — at each terminal, what
   (if anything) gets written to `~/.tesser/`: the clone at its materialization level, the
   validated map, the build state. This is the only retention choice with cross-run
   consequences, so it's made explicitly, not by default.
+
+## Concurrency model — gather → join (the two beats are two joins)
+
+Falls out of the kernel (`everything-is-a-claim.md:24`: *"aggregate claims; do not
+synthesize — push synthesis to the leaf"*). It is **not** two parallel tracks to
+synchronize. It is:
+
+- **Gatherers** — separate, independent producers, one per source on the ladder:
+  `recall` (weights) · `docs` (README/docs at a pin) · `inspect` (source) · `run`
+  (build/exercise). Each emits **claims tagged with their source-grade**. Gatherers run
+  as far up the ladder as the altitude/kind ceiling and the latency budget allow; the
+  higher ones run in the background.
+- **Joiner** — assembles the current-best answer from whatever claims exist, applying
+  *trust each claim as much as it deserves*: welds provenance (Obligation A), keeps
+  confidence faithful (Obligation B), surfaces the covered / known-gap / unknown-gap map.
+- **The two beats are two firings of the joiner**, not two phases:
+  - **beat-1** = join over what's gathered *within the latency budget*. Known dep →
+    `recall` alone (instant). Unknown dep → `recall` + a fast `docs` (the foreground
+    sparse-clone README). The foreground/background line is exactly *where beat-1 fires*.
+  - **beat-2** = re-join, fired when a **higher-trust gatherer returns and changes the
+    answer** (raises confidence past a hedge, or contradicts → supersede). If the higher
+    source agrees, the re-join is silent.
+- **Comparison (N refs)** — each ref has its own gatherers; the **join spans refs** (the
+  fan-in), producing one comparative answer. A leg that's private/inaccessible joins as a
+  known-gap, not a failure.
+
+So "Answer" is the joiner, fired ≥1 times; the gatherers are the pipeline (resolve →
+reuse → climb). `model-knows-it` only moves *which gatherers clear the beat-1 budget*.
 
 ## Constraint on the traversal (a requirement, not a dimension)
 
