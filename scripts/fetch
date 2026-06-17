@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""tesser deterministic grounding fetcher (grounding-design.md, 2026-06-17).
+
+The "push it DOWN" half of the design: the docs/source acquisition that used to
+be brittle prose in subagent-brief.md §1-§9 (misread as a foreground checklist,
+leaked internal vocab) lives here as a deterministic binary instead. Same URL ->
+same bytes. The agent calls this and NEVER reasons about cache / cold / warm /
+pin / ls-remote -- a script owns all of it, opaquely.
+
+Two levels on one progressively-materialized clone:
+
+  fetch docs   <url>   treeless+sparse clone, materialize README + docs/   (docs grade)
+  fetch source <url>   widen the SAME clone to the full working tree        (inspect grade)
+
+Both print one JSON object to stdout describing what was materialized and the
+pin (the clone's rev-parse HEAD -- offline, never chasing upstream, D11). The
+clone is keyed by normalized identity and reused across calls, so `source` after
+`docs` widens in place at the same pin. Caching, reuse, and the warm/cold
+distinction are entirely internal: the agent reads `root` + `files` to form
+claims and `sha` for provenance; `from_cache` is informational and ignored.
+
+Verification is implicit (the design's "never block on certainty"): a bad or
+private URL makes `git clone` fail, which this reports as status=unreachable
+(NOT a crash, and NOT "doesn't exist" -- a 404 is ambiguous, D47 overclaim rule).
+
+State root: ~/.tesser/ (clones under <root>/clones/<identity>/). TESSER_HOME
+overrides the root for hermetic tests ONLY; real invocations never set it.
+
+Exit codes:
+  0  ok                  (status=ok JSON on stdout)
+  2  usage error         (bad arguments)
+  4  environment failure (git not on PATH)
+  5  unreachable         (status=unreachable JSON on stdout; clone/verify failed)
+
+The run step (build / exercise / interpret + the verification-contract) is NOT
+here -- it is a background sub-agent, because it needs judgment. This script is
+acquisition only.
+"""
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+# Docs-level sparse-checkout set. Cone mode always materializes root-level files
+# (so README.md / README is present after a --sparse clone); we add the prose
+# docs directories on top. Kept deliberately small -- this is the fast beat-1
+# fetch, not a full tree.
+DOCS_DIRS = ("docs", "doc")
+# Files we surface as the materialized "docs" so the agent knows what to read.
+# Root-level docs are matched case-insensitively against these stems.
+DOCS_ROOT_STEMS = ("readme", "changelog", "contributing", "license", "usage")
+GIT_TIMEOUT_SECONDS = 120
+
+
+def state_root() -> str:
+    """Resolve the state root: TESSER_HOME (tests only) or ~/.tesser/."""
+    override = os.environ.get("TESSER_HOME")
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".tesser")
+
+
+def fail_usage(message: str) -> "None":
+    print(f"fetch: error: {message}", file=sys.stderr)
+    sys.exit(2)
+
+
+def fail_env(message: str) -> "None":
+    print(f"fetch: environment: {message}", file=sys.stderr)
+    sys.exit(4)
+
+
+def emit_unreachable(url: str, identity, detail: str) -> "None":
+    """Print the unreachable JSON and exit 5. A failed clone is a normal,
+    expected outcome (private/renamed/typo'd repo), never a crash. The detail
+    is a short git-stderr summary; the agent must phrase this as 'can't reach',
+    never 'doesn't exist' (D47)."""
+    print(json.dumps({
+        "status": "unreachable",
+        "url": url,
+        "identity": identity,
+        "detail": detail,
+    }, ensure_ascii=False))
+    sys.exit(5)
+
+
+# --- identity normalization (mirrors digest-schema.yaml identity rules: host +
+# full namespace path + repo, lowercased, .git stripped; https/ssh/scp-style
+# spellings collapse to one identity). Kept in sync only via a contract decision.
+_SCP_RE = re.compile(r"^(?P<user>[^@/]+)@(?P<host>[^:/]+):(?P<path>.+)$")
+_SEG_OK_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def normalize_identity(url: str):
+    """Return (identity, canonical_url) or None if the URL is not a parseable
+    git remote. identity = '<host>/<org-path>/<repo>' lowercased; canonical_url
+    is the https form used for the actual clone. Subgroups (GitLab) are kept."""
+    raw = url.strip()
+    host = None
+    path = None
+    # file:// (test fixtures, per digest-schema.yaml): host='file', org-path=parent
+    # dir, repo=repo dir. The canonical URL is the real local path, so the clone
+    # reads a local repo with no network.
+    if raw.startswith("file://"):
+        abspath = raw[len("file://"):]
+        abspath = abspath.rstrip("/")
+        if not abspath.startswith("/"):
+            return None
+        repo = os.path.basename(abspath)
+        parent = os.path.basename(os.path.dirname(abspath))
+        if not repo or not parent:
+            return None
+        if repo.endswith(".git"):
+            repo = repo[:-4]
+        for seg in (parent, repo):
+            if seg in (".", "..") or not _SEG_OK_RE.match(seg):
+                return None
+        return f"file/{parent.lower()}/{repo.lower()}", f"file://{abspath}"
+    if raw.startswith("https://") or raw.startswith("http://") or raw.startswith("git://"):
+        rest = raw.split("://", 1)[1]
+        if "/" not in rest:
+            return None
+        host, path = rest.split("/", 1)
+    elif raw.startswith("ssh://"):
+        rest = raw.split("://", 1)[1]
+        if "@" in rest:
+            rest = rest.split("@", 1)[1]
+        if "/" not in rest:
+            return None
+        host, path = rest.split("/", 1)
+    else:
+        m = _SCP_RE.match(raw)
+        if not m:
+            return None
+        host, path = m.group("host"), m.group("path")
+    host = host.split("@")[-1].split(":")[0].strip().lower()
+    # strip a trailing .git and any surrounding slashes
+    path = path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    segments = [s for s in path.split("/") if s]
+    if not host or len(segments) < 2:
+        return None
+    # reject traversal / odd segments so identity can't escape the clones root
+    for seg in segments:
+        if seg in (".", "..") or not _SEG_OK_RE.match(seg):
+            return None
+    identity = "/".join([host] + [s.lower() for s in segments])
+    canonical_url = f"https://{host}/{'/'.join(segments)}.git"
+    return identity, canonical_url
+
+
+def run_git(args, cwd=None):
+    """Run a git command, returning (returncode, stdout, stderr). Never raises
+    on a nonzero git -- a failed clone is a normal outcome, not an exception."""
+    proc = subprocess.run(
+        ["git"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=GIT_TIMEOUT_SECONDS,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def clone_dir(root: str, identity: str) -> str:
+    return os.path.join(root, "clones", identity)
+
+
+def is_clone(path: str) -> bool:
+    return os.path.isdir(os.path.join(path, ".git"))
+
+
+def short_stderr(stderr: str) -> str:
+    """One-line summary of git's failure for the unreachable detail."""
+    lines = [ln.strip() for ln in stderr.splitlines() if ln.strip()]
+    return lines[-1] if lines else "git failed with no output"
+
+
+def ensure_clone(root: str, identity: str, canonical_url: str, url: str) -> str:
+    """Ensure a treeless+sparse clone exists for this identity; return its path.
+    Reuse an existing clone (warm path, offline -- no network, no re-verify). On
+    a fresh clone, a failure is reported as unreachable."""
+    path = clone_dir(root, identity)
+    if is_clone(path):
+        return path
+    # A partial/corrupt dir from an interrupted clone must not poison reuse.
+    if os.path.exists(path):
+        shutil.rmtree(path, ignore_errors=True)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    rc, _out, err = run_git([
+        "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+        canonical_url, path,
+    ])
+    if rc != 0 or not is_clone(path):
+        shutil.rmtree(path, ignore_errors=True)
+        emit_unreachable(url, identity, short_stderr(err))
+    return path
+
+
+def materialize(path: str, level: str) -> None:
+    """Set the sparse-checkout for the requested level on an existing clone.
+    docs -> root files + docs/ dirs; source -> the full working tree."""
+    if level == "docs":
+        run_git(["sparse-checkout", "set", *DOCS_DIRS], cwd=path)
+    else:  # source
+        run_git(["sparse-checkout", "disable"], cwd=path)
+
+
+def list_materialized(path: str, level: str):
+    """Return repo-relative paths of what the agent should read, deterministically
+    ordered. docs -> root doc files + files under docs dirs; source -> top-level
+    tracked entries (not the whole tree -- the agent greps from `root`)."""
+    out = []
+    if level == "docs":
+        for entry in sorted(os.listdir(path)):
+            full = os.path.join(path, entry)
+            if entry == ".git" or os.path.isdir(full):
+                continue
+            stem = entry.split(".")[0].lower()
+            if stem in DOCS_ROOT_STEMS:
+                out.append(entry)
+        for d in DOCS_DIRS:
+            ddir = os.path.join(path, d)
+            if not os.path.isdir(ddir):
+                continue
+            for dirpath, _dirs, files in os.walk(ddir):
+                for f in sorted(files):
+                    rel = os.path.relpath(os.path.join(dirpath, f), path)
+                    out.append(rel)
+    else:  # source
+        for entry in sorted(os.listdir(path)):
+            if entry == ".git":
+                continue
+            out.append(entry + ("/" if os.path.isdir(os.path.join(path, entry)) else ""))
+    return out
+
+
+def cmd_fetch(level: str, url: str) -> None:
+    if shutil.which("git") is None:
+        fail_env("git is not on PATH")
+    norm = normalize_identity(url)
+    if norm is None:
+        fail_usage(f"not a parseable git URL: {url!r}")
+    identity, canonical_url = norm
+    root = state_root()
+    existed = is_clone(clone_dir(root, identity))
+    path = ensure_clone(root, identity, canonical_url, url)
+    materialize(path, level)
+    rc, sha, err = run_git(["rev-parse", "HEAD"], cwd=path)
+    if rc != 0:
+        # A clone with no resolvable HEAD is an environment failure, not an
+        # unreachable repo (we already cloned it).
+        fail_env(f"rev-parse HEAD failed in {path}: {short_stderr(err)}")
+    print(json.dumps({
+        "status": "ok",
+        "identity": identity,
+        "url": canonical_url,
+        "sha": sha.strip(),
+        "level": level,
+        "root": path,
+        "files": list_materialized(path, level),
+        "from_cache": existed,
+    }, ensure_ascii=False))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="fetch",
+        description="Deterministic docs/source acquisition for tesser grounding "
+                    "(grounding-design.md). Caching, pin, and verify are internal.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    for level in ("docs", "source"):
+        p = sub.add_parser(level, help=f"materialize {level} for a repo, print JSON")
+        p.add_argument("url", help="the git URL (recalled, pasted, or search-resolved)")
+        p.set_defaults(level=level)
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    cmd_fetch(args.level, args.url)
+
+
+if __name__ == "__main__":
+    main()
