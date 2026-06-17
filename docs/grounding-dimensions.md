@@ -1,5 +1,10 @@
 # Grounding-flow dimensions
 
+> ⚠ **SUPERSEDED 2026-06-17 by `grounding-design.md`.** The Given/Derived/Events +
+> gatherer/service/loop mechanics are replaced by the two-actor design. Retained for
+> history. **The "Foundation" section below (locked kernel + candidate ladder) carries
+> forward unchanged** — `grounding-design.md` quotes it.
+
 **What this is:** the MECE set of *state variables* that determine tesser's grounding
 flow paths — the inputs to the resolver, not the resolver. It is **not** the flow
 itself (which variable is read at which decision, the transitions, the terminals —

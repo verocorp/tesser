@@ -1,5 +1,11 @@
 # Grounding flow — black-box phase contract
 
+> ⚠ **SUPERSEDED 2026-06-17 by `grounding-design.md`.** The six-phase model here
+> (P0–P5, the edge list, the three-rail diagram) is replaced by the two-actor design
+> (main agent + deterministic fetch scripts + background run-agent). Retained for
+> history. The reuse / `ls-remote` / back-edge wiring is now script-internal; F1 and F2
+> dissolved.
+
 **What this is:** the *wiring* of the grounding flow — each phase as a **black box**
 (Entry / Consumes / Emits / Exits), with internals deliberately left opaque. The point is
 to pin the inter-phase edges first (where the non-linearity lives) so each phase's
