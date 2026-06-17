@@ -96,23 +96,32 @@ deterministic work stays silent; lead with its result.**
 
 ---
 
-## What lives where (the skillify mapping)
+## What lives where (the skillify split)
 
-| Behavior | Layer | Test ring | Prior-art template |
+The primary cut is gbrain skillify's: **latent** (intelligence — the model judges) vs
+**deterministic** (trust — same input, same output). "Push intelligence UP into the
+skill, push execution DOWN into deterministic tooling" (`THIN_HARNESS_FAT_SKILLS.md:92`).
+How each piece is tested follows the skillify 11-step contract (`skills/skillify/SKILL.md`).
+
+| Behavior | Layer | How it's tested (skillify) | Prior-art template |
 |---|---|---|---|
-| question → reference + altitude + intent | prompt (latent) | B | `skillify-check.ts` |
-| get URL: recall/paste → else search | script lookup + prompt fallback | C + B | `fail-improve.ts` |
-| **docs fetch · source clone · cache · git verify** | **deterministic script** | **C** + A + integration | `eval.test.ts` + live endpoint |
-| form claims from docs/source at altitude | prompt (latent) | D (judge) | `takes-quality-eval/rubric.ts` |
-| first emission (recall vs gated honest-status) | prompt | B + D | scoreboard FASTER + judge p1/p9/p10 |
-| block-to-level (altitude wait) | prompt judgment | B + D | judge |
-| **run: build/exercise/interpret + verification-contract** | **sub-agent** | D (judge p11) | `takes-quality` + `eval-contradictions/judge.ts` |
-| trust label (recall/docs/source/run) | **script-stamped tag, not latent self-report** | C + D | `takes-quality` `attribution` dim |
-| supersede only when the answer changes | prompt | B + D (p9) | gate 7 |
-| developer course-correction → fixture | harness | capture | `fail-improve.ts:121` |
+| question → reference + altitude + intent | prompt (latent) | LLM eval (judge) | `takes-quality-eval/rubric.ts` |
+| get URL: recall/paste → else search | script lookup + latent fallback | unit test (lookup) + LLM eval (search) | `fail-improve.ts` |
+| **docs fetch · source clone · cache · git verify** | **deterministic script** | **unit + integration tests** (steps 4–5) | `eval.test.ts` + live endpoint |
+| form claims from docs/source at altitude | prompt (latent) | LLM eval (judge, step 6) | `takes-quality-eval/rubric.ts` |
+| first emission (recall vs gated honest-status) | prompt (latent) | LLM eval (judge — answer-first, no-overclaim) | `takes-quality` + scoreboard FASTER |
+| block-to-level (altitude wait) | prompt (latent) | LLM eval (judge) | judge |
+| **run: build/exercise/interpret + verification-contract** | **sub-agent (latent)** | LLM eval (judge — verification-contract) | `takes-quality` + `eval-contradictions/judge.ts` |
+| trust label (recall/docs/source/run) | **script-stamped tag, not latent self-report** | unit test (the stamp) + LLM eval (faithfulness) | `takes-quality` `attribution` dim |
+| supersede only when the answer changes | prompt (latent) | LLM eval (judge — machinery silence) | judge |
+| developer course-correction → fixture | harness | fixture capture (every miss → a test) | `fail-improve.ts:121` |
 
-Free A/B/C rings gate every merge; the ~$1 judge (D) runs periodically
-(`concepts/testing-agent-skills.md:52`).
+Deterministic code is unit/integration tested (free, every merge); the latent steps are
+proven by **cross-modal eval then the LLM judge** (skillify steps 3 + 6) — quality is
+proven by *running*, not by pinning the prompt's wording. The existing SKILL.md
+wording-pins (`structure.test.ts`) are a tesser-homegrown regression guard, secondary to
+the eval. Sequencing is skillify's: **prove the bar first, then cement** — cross-modal
+eval before any test locks the behavior in (`skills/skillify/SKILL.md:100`).
 
 ---
 
@@ -150,8 +159,8 @@ Free A/B/C rings gate every merge; the ~$1 judge (D) runs periodically
 ## Open / next
 
 - **The deterministic fetch script** — the docs→source acquisition + cache + implicit
-  verify (the core "push it DOWN" move). Build + Type-C/integration test first; it's
-  eval-independent.
+  verify (the core "push it DOWN" move). Build + unit/integration test first (skillify
+  steps 4–5); it's deterministic, so its bar is correctness, not an LLM eval.
 - **Thin SKILL.md / subagent-brief rewrite** — call the script; the gated honest-status;
   progressive updates; brief shrinks to judgment. Built dogfood-by-dogfood (the 5-prompt
   set), gates written *after* the bar is proven.

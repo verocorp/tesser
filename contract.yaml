@@ -60,7 +60,7 @@ clauses:
     # surface: script (grounding-design.md, 2026-06-17) — the reuse cache, the
     # pin, and implicit verification are owned by scripts/fetch, a deterministic
     # binary, not agent prose. Demoted from a playbook anchor to a script-internal
-    # behavior assured by the fetch Type-C tests (tests/fetch.test.ts). The digest
+    # behavior assured by the fetch unit tests (tests/fetch.test.ts). The digest
     # ARTIFACT (validated, citeable, bundleable map) still exists on the build path.
     surface: script
     source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D22", "D24", "D34", "D35"]

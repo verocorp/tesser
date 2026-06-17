@@ -1,9 +1,11 @@
-// Type-C deterministic gates for scripts/fetch (grounding-design.md, 2026-06-17).
+// Unit tests for scripts/fetch (skillify step 4) — grounding-design.md, 2026-06-17.
 //
-// scripts/fetch is the "push it DOWN" binary: docs/source acquisition + cache +
-// implicit verification, opaque to the agent. These tests exercise it as plain
-// software (the Type-C ring, free, gates every merge) against a LOCAL file://
-// fixture repo — real git, no network — so they're hermetic and fast.
+// scripts/fetch is the "push it DOWN" deterministic binary: docs/source acquisition
+// + cache + implicit verification, opaque to the agent. Per gbrain skillify, a
+// deterministic script's bar is correctness (same input, same output), proven by
+// unit tests that cover every branch — not an LLM eval. These exercise it against a
+// LOCAL file:// fixture repo (real git, no network) so they're hermetic and fast; a
+// live-endpoint integration test (skillify step 5) against a real remote is still owed.
 //
 // Every spawn sets TESSER_HOME to a temp dir so the clone cache lands in a
 // throwaway location, never the dev's real ~/.tesser.

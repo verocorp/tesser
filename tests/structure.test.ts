@@ -1,5 +1,12 @@
-// T5 Type-B deterministic gates (tests/structure.test.ts — the file name
-// promised by contract.yaml's header comment) + spec-integrity gates.
+// SKILL.md wording-regression guards (tests/structure.test.ts) + spec-integrity
+// checks.
+//
+// NOTE (gbrain skillify): these gates pin the SKILL.md TEXT. Under skillify the
+// skill's QUALITY is proven by cross-modal eval + the LLM judge (steps 3, 6) —
+// by running it, not by asserting its wording. So these are a tesser-homegrown
+// regression guard, SECONDARY to the eval; kept because they catch wording
+// regressions cheaply, not expanded as the quality mechanism. The deterministic
+// scripts are covered by their own unit tests (skillify step 4).
 //
 // Spec-as-data: clause ids, the anchor format, the byte budget, enums, and
 // the citation token_pattern are all loaded from contract.yaml /
@@ -13,7 +20,7 @@
 // ============================================================================
 // SKILL.md WAS a deliberate STUB until T4 landed (its frontmatter description
 // began with "STUB"). T4 (commit e9c48d4) replaced it with the real playbook,
-// so SKILL_IS_STUB is now false and these five Type-B gates are armed and
+// so SKILL_IS_STUB is now false and these five wording gates are armed and
 // asserting real content (clause anchors, logger call sites, the verify-
 // fallback ladder, self-update wording). The skipIf machinery is KEPT, not
 // removed: it is the regression guard against re-stubbing — if a future edit
@@ -41,7 +48,7 @@ interface Clause {
   statement: string;
   // surface: where the clause is enforced. "playbook" (default) = anchored in
   // SKILL.md/subagent-brief prose (gate 1). "script" = owned by a deterministic
-  // binary (scripts/fetch) and assured by its Type-C tests, NOT a prose anchor
+  // binary (scripts/fetch) and assured by its unit tests, NOT a prose anchor
   // (grounding-design.md, 2026-06-17 — digest-consult, idempotent-reuse).
   surface?: "playbook" | "script";
 }
@@ -109,13 +116,13 @@ function anchorFor(id: string): string {
 }
 
 // ============================================================================
-// A. The five Type-B gates
+// A. The five wording gates
 // ============================================================================
 
 // Gate 1 — clause anchors: for every PLAYBOOK-surfaced clause in contract.yaml
 // (parsed as data), the playbook contains the literal `contract:<id>`. Clauses
 // marked `surface: script` are owned by a deterministic binary (scripts/fetch)
-// and assured by its Type-C tests instead of a prose anchor, so they are exempt
+// and assured by its unit tests instead of a prose anchor, so they are exempt
 // (grounding-design.md, 2026-06-17).
 const playbookClauses = contract.clauses.filter((c) => c.surface !== "script");
 describe.skipIf(SKILL_IS_STUB)(`gate 1: clause anchors in the playbook${note}`, () => {
@@ -220,9 +227,10 @@ describe("gate 4: SKILL.md byte budget", () => {
   });
 });
 
-// Gate 6 — internal-lexicon containment (D41). The leak axis's free Type-B ring
-// (testing-agent-skills principles 3 + 10): catch a jargon-leak regression for
-// FREE, every merge, instead of waiting on an expensive model run.
+// Gate 6 — internal-lexicon containment (D41). A cheap wording-regression guard:
+// catch a jargon-leak regression for free, every merge, instead of waiting on an
+// expensive model run. (Secondary to the LLM judge, which is what actually proves
+// the leak-free quality bar by running the skill — skillify step 6.)
 //
 // (a) Negative pin — the exact class we removed: a square-bracketed grade-label
 // template (`[provisional — inspect-grade, widget@…]`) the agent copies verbatim
@@ -541,7 +549,7 @@ describe("stub-marker consistency", () => {
     for (const c of contract.clauses) {
       expect(
         skillText.includes(anchorFor(c.id)),
-        `SKILL.md is marked STUB but already carries the anchor for "${c.id}" — remove the STUB marker from the frontmatter description so the Type-B gates arm`
+        `SKILL.md is marked STUB but already carries the anchor for "${c.id}" — remove the STUB marker from the frontmatter description so the wording gates arm`
       ).toBe(false);
     }
   });
