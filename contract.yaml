@@ -57,6 +57,12 @@ clauses:
 
   - id: digest-consult
     delta: true # value-over-baseline delta (iv)
+    # surface: script (grounding-design.md, 2026-06-17) — the reuse cache, the
+    # pin, and implicit verification are owned by scripts/fetch, a deterministic
+    # binary, not agent prose. Demoted from a playbook anchor to a script-internal
+    # behavior assured by the fetch Type-C tests (tests/fetch.test.ts). The digest
+    # ARTIFACT (validated, citeable, bundleable map) still exists on the build path.
+    surface: script
     source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D22", "D24", "D34", "D35"]
     statement: >-
       Before cold work, consult bundled digests (digests/ in the skill repo)
@@ -92,6 +98,11 @@ clauses:
 
   - id: idempotent-reuse
     delta: false
+    # surface: script (grounding-design.md, 2026-06-17) — pin-first reuse is the
+    # fetch script's job: it clones once, pins rev-parse HEAD, and reuses the clone
+    # at that SHA, never chasing upstream. The agent never reasons about it.
+    # Assured by tests/fetch.test.ts (cache hit/miss, pin held across docs->source).
+    surface: script
     source: ["D11", "D28", "D31"]
     statement: >-
       Pin-first reuse: the SHA is pinned at first clone, and every later
@@ -127,23 +138,28 @@ clauses:
     # holding line ("I don't know this, reading now") and the developer waited
     # for the clone — failing the FASTER hard gate on the exact case tesser
     # exists for. README-first grounds beat 1 in the project's own docs, fast.
+    # 2026-06-17 (grounding-design.md): amends D47's mechanism — the fast docs
+    # acquisition is `scripts/fetch docs` (a treeless+sparse clone, ~1s, NOT a
+    # full clone), not a raw gh-api GET. D47's motivation (don't pay full-clone
+    # cost for an overview) stands; "never a clone" was rejecting the wrong thing.
+    # And the status line is now GATED: only an unrecognized URL that needs a
+    # search warrants one; a known/pasted URL leads silently with the docs answer.
     statement: >-
       When the model does not already know the dependency, the immediate
-      (beat-1) answer is grounded in the project's own README/description
-      first — one fast, SHA-pinned fetch (gh api / raw at the resolved HEAD),
-      never a clone, never blocking — and conveyed in plain language as the
+      answer is grounded in the project's own docs first — one fast, SHA-pinned
+      acquisition via scripts/fetch docs (a treeless+sparse clone, ~1s, not a
+      full clone), never blocking — and conveyed in plain language as the
       project's own documentation (docs-grade: the lowest verified rung,
       above memory and below reading the source), never asserted as verified
-      behavior. A holding-line acknowledgment in place of a real beat-1 answer
-      is the FASTER failure this clause removes. For an overview, grounding
-      fetches the README plus the few load-bearing files at the resolved SHA
-      rather than cloning the whole repo; a clone happens only when altitude
-      escalates to set-up or does-it-work (a build needs a working tree). A
-      fetch-grounded overview is ephemeral — it persists no digest (nothing to
-      amortize, and the validator's clone invariant stays untouched). The one
-      foreground step this licenses is the README/docs fetch that produces the
-      answer; self-update, the invocation log, the digest consult, and the
-      clone remain the background subagent's job, never a foreground step.
+      behavior. A holding-line acknowledgment in place of a real answer is the
+      FASTER failure this clause removes. A status line is gated to a genuine
+      wait: only an unrecognized URL that must be searched for warrants the one
+      "searching — paste the URL to skip" line; a known or pasted URL leads
+      silently with the docs answer, because narrating a fast deterministic
+      fetch is machinery noise. Deepening to the source (scripts/fetch source)
+      and any build are background work, never narrated; the deterministic
+      fetch is the licensed acquisition, and the agent runs no other machinery
+      in the foreground.
 
   - id: self-update
     delta: false

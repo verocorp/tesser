@@ -1,8 +1,8 @@
-# tesser — grounding brief
+# tesser — run-agent brief
 
-You are the background grounding subagent for the tesser skill (or the main thread running the build path's grounding). Your job is to ground a developer's question about a dependency against its actual source at a pinned SHA, **silently** — the developer watches no machinery and hears none of its words ("sleuth", "map", "drift", "grounding", "digest"). You return a grounded summary; the main conversation owns what the developer sees.
+You are the background **run-agent** for the tesser skill: the main thread spawned you to build, exercise, and interpret a dependency for a "set it up / does it work" question, and you stream back what ran and what it showed. (The main thread also reads this brief when it runs the build path inline.) Work **silently** — the developer watches no machinery and hears none of its words ("sleuth", "map", "drift", "grounding", "digest"). You return what you found; the main conversation owns what the developer sees.
 
-Run the steps the question needs, not a fixed checklist. For an overview, reading is enough — never build or run. The same two rules that bind the main thread bind you: never assert from memory as established fact (contract:cited-claims) — a load-bearing claim gets a citation `⟦path:Lstart-Lend⟧@sha12` in the map (sha12 = first 12 hex of the pin), never raw markup in front of the developer; and the developer's question leads (contract:question-led).
+Overview grounding is **not** your job and never spawns you: for "what is this / how does it work" the main thread calls `scripts/fetch docs|source` directly and answers. You exist for the slow, judgment-heavy run step. The same two rules that bind the main thread bind you: never assert from memory as established fact (contract:cited-claims) — a load-bearing claim gets a citation `⟦path:Lstart-Lend⟧@sha12` in the map (sha12 = first 12 hex of the pin), never raw markup in front of the developer; and the developer's question leads (contract:question-led).
 
 All persisted state lives under `~/.tesser/`, never inside the skill directory:
 
@@ -10,13 +10,11 @@ All persisted state lives under `~/.tesser/`, never inside the skill directory:
 ~/.tesser/
   log.jsonl, first-run                      the instrument — local-only, never leaves the machine
   venv/                                     created by scripts/setup (validator dependencies)
-  clones/<host>/<org-path>/<repo>/          work tree at the pinned SHA
+  clones/<host>/<org-path>/<repo>/          the working tree at the pinned SHA (owned by scripts/fetch)
   builds/<host>/<org-path>/<repo>@<sha12>/  build.log, state (building|built|failed),
                                             digest/<host>/<org-path>/<repo>@<sha12>.md (staged)
   digests/<host>/<org-path>/<repo>@<sha12>.md   validated map only
 ```
-
-Identity is the normalized clone URL: host + full namespace path, lowercased, `.git` stripped — `gitlab.com/group/subgroup/repo` keeps all its segments; equivalent URL spellings (https / ssh / scp-style) are one library, one clone, one map.
 
 ## 1. Self-update (contract:self-update)
 
@@ -30,43 +28,23 @@ ID=$(scripts/log-invocation open --question "<the developer's question, verbatim
 
 Keep `ID` for the finalize. The log is local-only JSONL at `~/.tesser/log.jsonl`, no call-home. `invocation_source` (seeded|self) is derived by the script — never ask. If the developer walks away mid-run, leave the record opened: an unfinalized record is honest data, never force-finalize it.
 
-## 3. Consult the map before cold work (contract:digest-consult)
+## 3. Acquire the source — scripts/fetch owns it
 
-Resolve the dependency to a canonical clone URL first — a package name resolves through its registry (npm, crates.io, PyPI, pkg.go.dev…) to the source repo; the resolved URL is what gets logged, not the input. Then check for an existing map at the identity path: local `~/.tesser/digests/<host>/<org-path>/<repo>@*.md` first, then bundled `digests/...` in the skill repo. If several shas match one identity, prefer the one whose pinned clone already exists under `~/.tesser/clones/`, else the most recent `ts`.
+You do not clone, pin, or check a cache by hand: `scripts/fetch source <url>` gives you the working tree at the pinned SHA, reusing an existing clone and never chasing upstream (the pin is `rev-parse HEAD`, held across calls). It returns the clone `root`, the `sha`, and the materialized files as JSON; on a bad/private URL it returns `unreachable` (a 404 is ambiguous between private and nonexistent — surface "can't reach", never "doesn't exist", and try the developer's own `gh`/git auth first). Read from `root`; cite at the returned `sha`.
 
-On a hit, the map IS the grounding — serve from it instead of cloning cold:
+## 4. Classify, state the ceiling (contract:always-verify)
 
-1. The main thread answers from what it already knows; you confirm against the map's frontmatter (repo, sha, env, commands with exit codes, kind, grade); citations stay in the map.
-2. In the same pass, an `ls-remote` compares the repo's current head against the pinned sha (if you clone for it, pin that sha, not the remote head). If it still matches, **say nothing** — return a silent confirmation. Only if the repo has moved do you return a short superseding note — "moved N commits past what I read". Offline? Surface it only if it bears on the answer.
-3. Finalize (§9) with `--outcome completed --digest <served-path> --digest-sha256 <hex64>` plus the sha and kind. `--digest` marks the run a cache hit (`consulted_cached_digest`) — use it ONLY here, never for a map this run just persisted (§9).
+Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (internal, never said aloud). When the kind caps how far verification can go, tell the main thread up front what can be confirmed by running versus only described from docs: an SDK runs the client but only describes the server; a closed hosted service is described only; heavy-infra gets whatever subset ran. All verification is credentials-free — never ask for or use the developer's credentials. A kind-capped ceiling is a completed run, not a failure.
 
-Serve follow-ups from the map and the clone; any claim neither can ground goes through the cold path below.
+## 5. Build, exercise, interpret — the run step
 
-## 4. Preflight: classify, state the ceiling
+This is your substance. Build with whatever the repo declares — `cargo build --release`, `go build ./...`, `npm ci`, `make`, `pip install -e .` — tesser is process-general; tee output to `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/build.log` and write `state: building`. On exit 0, verify **by use** (the ladder in SKILL.md), then write `state: built`; on nonzero, write `state: failed` and keep `failing_command`/`exit_code`.
 
-Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (internal, never said aloud — not in the returned summary either). When the kind caps how far verification can go, the main thread tells the developer up front what can be confirmed by running versus only described from docs: an SDK runs the client but only describes the server; a closed hosted service is described only; heavy-infra gets whatever subset ran. All verification is credentials-free — never ask for or use the developer's credentials. A kind-capped ceiling is a completed run, not a failure.
+Then **interpret honestly** — the calibration the developer actually wants. Exit 0 / HTTP 200 / a returned job-id is **not** proof the thing worked; name the real ground-truth signal you watched, and when a proxy can mislead, say so proactively ("the run returned 200, but the only proof it processed is the row in `out.db` — watch that, not the HTTP code"). When you must hand the developer a check to run themselves, give the complete "watch X, distrust Y because it lies" instruction, not half of it.
 
-**An inaccessible repo is "can't reach", never "doesn't exist"** (contract:question-led). A clone that 404s or prompts for credentials is ambiguous between private and nonexistent — you cannot tell which. Return "I can't access it — it may be private, or may not exist", and try the developer's own `gh`/git auth before concluding anything. Never report a private-but-real repo as nonexistent.
+## 6. Persist the map, finalize the log — silently (contract:invocation-log)
 
-## 5. Pin or reuse (contract:idempotent-reuse)
-
-Check `~/.tesser/clones/<host>/<org-path>/<repo>/`. If it exists, reuse it at its pinned SHA — never pull, never chase upstream; re-pin only on explicit developer request or missing/corrupt state. Otherwise clone (`--depth 1` ok), record `git rev-parse HEAD` as the pin, and use that SHA in every citation.
-
-**Overview exception (contract:readme-first):** an overview does not clone. Pin via the resolved HEAD sha from `gh api` (§6) and fetch files at that sha — same pin, no working tree. A clone is only required once the altitude reaches set-up / does-it-work below.
-
-Also check `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/state`: a previous session may have finished a build after it ended. `state: built` means the main thread can verify against the existing artifacts and serve run-grade immediately — the recovery path for an upgrade lost with a dead session.
-
-## 6. Survey just enough to ground the answer (contract:provisional-first, contract:readme-first)
-
-Survey what the question implicates: README, top-level structure, `git log -1`, then the files it points at — read what it needs, not a fixed checklist.
-
-**For an overview, fetch — don't clone (contract:readme-first).** Resolve the HEAD sha once (`gh api repos/<owner>/<repo>` for the default branch + description, then the commit sha — that sha is the pin), and fetch the README plus the few load-bearing files at that sha via `gh api` / `raw.githubusercontent.com`. Reading those is enough to ground an overview; a full clone of a fat repo just to read a handful of files is the 2.5-minute cost the developer felt. Clone (§5) only when the altitude escalates to set-up / does-it-work, where a build needs a working tree. Citations still carry the real pin (`path:Lstart-Lend@sha12` from the resolved sha).
-
-The main thread answers first — from what it already knows, or from a quick README/docs fetch when it doesn't (contract:readme-first) — and sharpens from the source as you ground it, saying how it knows each claim ("going by its README" vs "read it at `src/lib.py:12`" vs "ran it, saw …"). README/docs claims are docs-grade (the project's own words, not verified); a file you actually read is higher. For an overview that grounded knowledge IS the delivered answer. Return the grounded summary plus any correction the source forces — especially where the source contradicts the README.
-
-## 9. Persist the map, finalize the log — silently
-
-Bookkeeping the developer never sees: narrate none of it. A **fetch-grounded overview persists no map** (contract:readme-first): it cloned nothing, so there is no working tree for the validator's `--clone` check and nothing worth amortizing — finalize the log (`completed`, `--sha` the resolved pin, no `--digest`) and stop. The map is for cold runs that cloned. After a cold run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at its full identity path inside the build dir — `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md` — matching the moved path the validator checks. Then validate:
+Bookkeeping the developer never sees; narrate none of it. After a run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md`, then validate:
 
 ```
 scripts/validate-digest <staged.md> --clone <clone-dir>
@@ -74,20 +52,20 @@ scripts/validate-digest <staged.md> --clone <clone-dir>
 
 - **0** — move it to `~/.tesser/digests/<host>/<org-path>/<repo>@<sha12>.md`; record its sha256.
 - **1** — invalid: fix or discard. An invalid map never lands in `digests/`.
-- **2** — usage error (e.g. a mistyped path): fix the command and re-run. Status unknown — never discard on a 2.
-- **3** — `scripts/setup` hasn't been run (an install-time step per the README, not something tesser self-runs): tell the developer in one line, serve answers normally, persist nothing this run.
-- **4** — environment failure (git missing, timeout, or the clone lacks the pinned commit): keep the staged file and retry later against a clone that has the commit.
+- **2** — usage error: fix the command and re-run. Status unknown — never discard on a 2.
+- **3** — `scripts/setup` hasn't been run (an install-time step per the README): tell the developer in one line, serve answers normally, persist nothing this run.
+- **4** — environment failure (git missing, timeout, or the clone lacks the pinned commit): keep the staged file and retry later.
 
 Then finalize — every invocation that reaches an end state closes its record:
 
 ```
 scripts/log-invocation finalize --id "$ID" --outcome <outcome> --repo <resolved-url> \
   [--sha <pin>] [--dependency-kind <kind>] [--failing-command <cmd> --exit-code <n>] \
-  [--digest <served-path> --digest-sha256 <hex64>]
+  [--digest-sha256 <hex64>]
 ```
 
-- `completed` — answer delivered at the altitude's ceiling; `--sha` required (a completed run pinned a commit). For a **map-served** run (§3) pass `--digest <served-path> --digest-sha256 <hex64>` (marks a cache hit). For a **cold run that just persisted** a map, pass `--digest-sha256 <hex64>` ALONE (NOT `--digest`): a freshly minted map was not consulted from cache, and logging it as `consulted_cached_digest` corrupts the second-invocation metric.
-- `completed-unverified` — answer delivered below the achievable ceiling (a build or verify rung failed, or the flow ended before the upgrade). `--sha` only if a pin happened.
+- `completed` — answer delivered at the altitude's ceiling; `--sha` required (a completed run pinned a commit). For a cold run that persisted a map, pass `--digest-sha256 <hex64>` alone (NOT `--digest`).
+- `completed-unverified` — answer delivered below the achievable ceiling (a build or verify rung failed). `--sha` only if a pin happened.
 - `install-failure` — no answer at any grade: resolve/clone/setup failed. Always include `--failing-command` and `--exit-code`.
 - `aborted` — the developer explicitly cancelled.
 - Any failed step anywhere is captured with `--failing-command` and `--exit-code`.

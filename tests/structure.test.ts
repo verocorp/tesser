@@ -39,6 +39,11 @@ interface Clause {
   delta: boolean;
   source: string[];
   statement: string;
+  // surface: where the clause is enforced. "playbook" (default) = anchored in
+  // SKILL.md/subagent-brief prose (gate 1). "script" = owned by a deterministic
+  // binary (scripts/fetch) and assured by its Type-C tests, NOT a prose anchor
+  // (grounding-design.md, 2026-06-17 — digest-consult, idempotent-reuse).
+  surface?: "playbook" | "script";
 }
 interface Contract {
   version: number;
@@ -107,10 +112,14 @@ function anchorFor(id: string): string {
 // A. The five Type-B gates
 // ============================================================================
 
-// Gate 1 — clause anchors: for EVERY clause id in contract.yaml (parsed as
-// data, never hardcoded), SKILL.md contains the literal `contract:<id>`.
+// Gate 1 — clause anchors: for every PLAYBOOK-surfaced clause in contract.yaml
+// (parsed as data), the playbook contains the literal `contract:<id>`. Clauses
+// marked `surface: script` are owned by a deterministic binary (scripts/fetch)
+// and assured by its Type-C tests instead of a prose anchor, so they are exempt
+// (grounding-design.md, 2026-06-17).
+const playbookClauses = contract.clauses.filter((c) => c.surface !== "script");
 describe.skipIf(SKILL_IS_STUB)(`gate 1: clause anchors in the playbook${note}`, () => {
-  it.each(contract.clauses.map((c) => [c.id]))(
+  it.each(playbookClauses.map((c) => [c.id]))(
     "the playbook carries the literal anchor for clause %s",
     (id) => {
       const anchor = anchorFor(id);
@@ -120,6 +129,18 @@ describe.skipIf(SKILL_IS_STUB)(`gate 1: clause anchors in the playbook${note}`, 
       ).toBe(true);
     }
   );
+
+  it("a script-surfaced clause is exempt from the anchor requirement (and IS marked script)", () => {
+    // Guard the exemption itself: if a clause loses its anchor it must be
+    // because it was deliberately demoted to surface: script, not by accident.
+    const scriptClauses = contract.clauses.filter((c) => c.surface === "script");
+    for (const c of scriptClauses) {
+      expect(
+        c.surface,
+        `clause ${c.id} is exempt from gate 1 only because surface: script`
+      ).toBe("script");
+    }
+  });
 });
 
 // Gate 2 — logger call sites: the playbook invokes scripts/log-invocation at
@@ -319,40 +340,40 @@ describe.skipIf(SKILL_IS_STUB)(`gate 7: two-beat overview machinery-silence (D42
   });
 });
 
-// Gate 8 — README-first beat-1 (D47, 2026-06-15). When the model does not know
-// the dependency (tesser's founding case), beat 1 must ground in a fast README
-// read instead of emitting a "hang on, I don't know this" holding line (the
-// FASTER failure reproduced in session b40f75e1). Pins the dev-facing WORDING
-// of the behavior + the backslide guard that the one licensed foreground step
-// (the README fetch) does not widen back into the foreground machinery D43/D45
-// killed.
-// NOT verified here: that the agent actually fetches the README at runtime (the
-// Ring-D obedience e2e + scored dogfood own that); that the fetch resolves a sha
-// (subagent-brief mechanic, not dev-facing). This gate is SKILL.md-only —
-// beat 1 is the dev-facing main thread, not the background brief.
-describe.skipIf(SKILL_IS_STUB)(`gate 8: README-first beat-1 (D47)${note}`, () => {
-  it("names the unknown-dep case (beat 1 can't answer from memory)", () => {
+// Gate 8 — README-first beat-1 (D47, amended by grounding-design.md 2026-06-17).
+// When the model does not know the dependency (tesser's founding case), the
+// answer grounds in a fast docs acquisition (scripts/fetch docs — a treeless+
+// sparse clone, ~1s) instead of a "hang on, I don't know this" holding line (the
+// FASTER failure reproduced in session b40f75e1). The 2026-06-17 amendment: the
+// fast acquisition is a sparse clone via the deterministic fetch script (NOT a
+// raw gh-api GET, NOT "never a clone"), and the status line is GATED — only an
+// unrecognized URL that must be searched warrants one. Pins the dev-facing
+// WORDING + the gated-status discipline (a known URL leads silently).
+// NOT verified here: that the agent actually invokes scripts/fetch at runtime
+// (the Ring-D obedience e2e + scored dogfood own that). SKILL.md-only.
+describe.skipIf(SKILL_IS_STUB)(`gate 8: README-first beat-1, gated status (D47 + 2026-06-17)${note}`, () => {
+  it("names the unknown-dep case (the answer can't come from memory)", () => {
     expect(
       /don'?t recognize it|unfamiliar dependenc|when you don'?t (already )?know/i.test(skillText),
-      "SKILL.md beat 1 must name the case where the model does not know the dep"
+      "SKILL.md must name the case where the model does not know the dep"
     ).toBe(true);
   });
 
-  it("grounds the unknown-dep beat-1 in a fast README read, not a clone", () => {
+  it("grounds the unknown-dep answer via scripts/fetch docs (the fast sparse clone)", () => {
     expect(
-      /README/i.test(skillText) && /fetch/i.test(skillText),
-      "SKILL.md beat 1 must ground an unknown dep in a README/description fetch"
+      /scripts\/fetch docs/.test(skillText),
+      "SKILL.md must ground an unknown dep via `scripts/fetch docs` (the deterministic fast acquisition)"
     ).toBe(true);
     expect(
-      /never a clone|no clone/i.test(skillText),
-      "SKILL.md must say the README read is a fetch, never a clone"
+      /not a full clone|treeless|sparse/i.test(skillText),
+      "SKILL.md must convey the docs acquisition is fast (treeless+sparse, not a full clone)"
     ).toBe(true);
   });
 
-  it("labels README-sourced content as the project's own docs, never as verified", () => {
+  it("labels docs-sourced content as the project's own docs, never as verified", () => {
     expect(
       /project'?s own doc|going by (its|the) README/i.test(skillText),
-      "SKILL.md must convey a README answer as the project's own docs (docs-grade), not verified behavior"
+      "SKILL.md must convey a docs answer as the project's own docs (docs-grade), not verified behavior"
     ).toBe(true);
   });
 
@@ -363,23 +384,21 @@ describe.skipIf(SKILL_IS_STUB)(`gate 8: README-first beat-1 (D47)${note}`, () =>
     ).toBe(true);
   });
 
-  // The backslide guard (principle 10 — gate in the negative). The README fetch
-  // is the ONE licensed foreground step; self-update / log / map / clone must
-  // stay the background subagent's, never foreground. Without this pin, "you may
-  // fetch the README foreground" rots back into the foreground-machinery bug
-  // that took D43/D45 to kill.
-  it("scopes the foreground allowance: the README fetch is the ONLY foreground step", () => {
+  // The gated-status discipline (replaces the old foreground/background backslide
+  // guard): a status line is licensed ONLY for a genuine wait (an unknown URL
+  // needing a search). A known/pasted URL leads silently with the docs answer —
+  // narrating a fast deterministic fetch is the machinery noise gate 7 also kills.
+  it("gates the status line to a real wait: the search line is the ONLY status line", () => {
     expect(
-      /only\b[\s\S]{0,40}foreground step/i.test(skillText),
-      "SKILL.md must say the README fetch is the only foreground step it licenses"
+      /only\b[\s\S]{0,30}status line/i.test(skillText),
+      'SKILL.md must say the search line is the ONLY status line it ever emits'
     ).toBe(true);
   });
 
-  it("keeps the clone / log / self-update in the background, never foreground", () => {
+  it("ties the one status line to a search (a known URL leads silently)", () => {
     expect(
-      /(stay|stays|remain|remains) the (background )?subagent'?s/i.test(skillText) &&
-        /never a foreground step/i.test(skillText),
-      "SKILL.md must say git pull / log / map / clone stay the background subagent's job, never a foreground step"
+      /search[\s\S]{0,200}status line|status line[\s\S]{0,80}known url|known url[\s\S]{0,80}(never|silent)/i.test(skillText),
+      "SKILL.md must tie the status line to a search wait, and lead silently on a known URL"
     ).toBe(true);
   });
 });
