@@ -63,23 +63,30 @@ clauses:
     # behavior assured by the fetch unit tests (tests/fetch.test.ts). The digest
     # ARTIFACT (validated, citeable, bundleable map) still exists on the build path.
     surface: script
-    source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D22", "D24", "D34", "D35"]
+    source: ["design §Narrowest Wedge (iv)", "D12", "D14", "D22", "D24", "D34", "D35", "D2 (claim-cache, CC-T2)"]
     statement: >-
-      Before cold work, consult bundled digests (digests/ in the skill repo)
-      and local digests (~/.tesser/digests/). When a digest for the library
-      is used: serve it with full provenance, rewrite bare in-digest
-      citations to the full ⟦path:Lstart-Lend⟧@sha12 form at egress (D24 —
-      a delivered answer never contains a bare citation), and log the named
-      digest path (consulted_cached_digest) with its digest_sha256 — passive
-      evidence only, never verified at serve time (D35). Drift handling is
-      async (D22): the digest is served immediately, labeled drift-unchecked;
-      the background clone computes any SHA drift between the digest and the
-      repo's current state; a superseding follow-up delivers the drift
-      verdict, per provisional-first mechanics. Offline stays honestly
-      drift-unchecked. Cold runs persist a new digest to ~/.tesser/digests/
-      only per the validator's exit code (D34): 0 persist (logging
-      digest_sha256), 1 discard, 4 keep the artifacts and retry validation —
-      an environment failure is not a property of the digest.
+      Before cold work, consult the cache for the library — bundled digests
+      (digests/ in the skill repo) and local digests (~/.tesser/digests/) —
+      via scripts/fetch consult. The foreground/background split is the grade
+      boundary: the consult helper serves the FOREGROUND a citation-STRIPPED
+      view (the claim text + its grade tag docs|inspect|run|recall, never the
+      raw ⟦path:Lstart-Lend⟧@sha12 markup, which the foreground never opens)
+      and the BACKGROUND the full cited digest. The four provenance surfaces
+      stay distinct (Codex #4): digest provenance (full markup in the stored
+      claim), model-visible (the grade tag), developer-visible (plain English
+      — raw markup never reaches the developer, the D24 egress rule), and log
+      (the named digest path consulted_cached_digest + its digest_sha256,
+      passive evidence only, never verified at serve time, D35). A cached
+      claim outranks raw recall only when relevant, in-scope, and answering
+      this question — a stale or mismatched claim does not auto-dominate.
+      Drift handling is async (D22): the digest is served immediately,
+      labeled drift-unchecked; the background clone computes any SHA drift
+      between the digest and the repo's current state; a superseding follow-up
+      delivers the drift verdict, per provisional-first mechanics. Offline
+      stays honestly drift-unchecked. Cold runs persist a new digest to
+      ~/.tesser/digests/ only per the validator's exit code (D34): 0 persist
+      (logging digest_sha256), 1 discard, 4 keep the artifacts and retry
+      validation — an environment failure is not a property of the digest.
 
   - id: invocation-log
     delta: true # value-over-baseline delta (v)

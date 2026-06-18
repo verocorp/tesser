@@ -584,3 +584,67 @@ describe("gate 9: overview-persist (D3/CC-T4, reverses D47)", () => {
     ).toBe(false);
   });
 });
+
+// Gate 10 — two-tier beat-1 + reconciled digest-consult (CC-T5, claim-cache D2).
+// Beat 1 is two tiers: tier 1 consults the cache (scripts/fetch consult) and fuses
+// it with memory relevance-and-grade-aware, BEFORE the tier-2 docs fetch. The
+// foreground may serve a cached claim at its grade but never re-runs or opens a
+// citation live (the grade boundary). REGRESSION: the digest-consult clause no longer
+// claims "full provenance / rewrite bare citations at egress" — the foreground view
+// is citation-STRIPPED (CC-T2).
+describe.skipIf(SKILL_IS_STUB)(`gate 10: two-tier beat-1 + reconciled digest-consult (CC-T5)${note}`, () => {
+  it("tier 1 consults the cache via scripts/fetch consult", () => {
+    expect(
+      /scripts\/fetch consult/.test(skillText),
+      "SKILL.md beat-1 must consult the cache via `scripts/fetch consult` (tier 1)"
+    ).toBe(true);
+  });
+
+  it("fuses cache + memory relevance-and-grade-aware (a stale claim does not override memory)", () => {
+    expect(
+      /relevance-and-grade-aware/i.test(skillText),
+      "SKILL.md must fuse cache and memory relevance-and-grade-aware"
+    ).toBe(true);
+    expect(
+      /does not override what you know/i.test(skillText),
+      "SKILL.md must say a stale/off-topic cached claim does not override memory"
+    ).toBe(true);
+  });
+
+  it("the foreground serves a cached grade but never re-runs or re-opens the source live (grade boundary)", () => {
+    expect(
+      /never re-run a build/i.test(skillText) && /never open the cited file/i.test(skillText),
+      "SKILL.md must forbid the foreground re-running a build or re-opening the cited file (inspect/run are background)"
+    ).toBe(true);
+  });
+
+  // Panel-forced (2026-06-18 cross-modal design critique, codex + claude both FAIL,
+  // both min=4 sourcing): a cached claim served "at its grade" with no prior-finding
+  // convention launders stale cache as fresh truth. The fix is a CALIBRATED-axis
+  // honesty guard; the gate locks it so it can't regress.
+  it("a cached claim is served as a PRIOR finding (not fresh truth), with drift-supersede", () => {
+    expect(
+      /prior finding/i.test(skillText),
+      "SKILL.md must mark a cached claim as a PRIOR finding, not fresh verification (staleness-laundering guard)"
+    ).toBe(true);
+    expect(
+      /supersedes your beat-1/i.test(skillText),
+      "SKILL.md must say the background drift-check supersedes a stale cached beat-1 answer"
+    ).toBe(true);
+  });
+
+  it("REGRESSION: digest-consult is reconciled — stripped foreground view, not 'rewrite at egress'", () => {
+    const dc = contract.clauses.find((c: any) => c.id === "digest-consult");
+    expect(dc, "contract.yaml must still define the digest-consult clause").toBeTruthy();
+    // the old lie (the foreground answer carried rewritten full citations) is gone
+    expect(
+      /rewrite bare/i.test(dc.statement),
+      "digest-consult must NOT say 'rewrite bare ... citations at egress' (the pre-CC-T2 model)"
+    ).toBe(false);
+    // and the new model — a citation-STRIPPED foreground view — is stated
+    expect(
+      /STRIPPED/.test(dc.statement),
+      "digest-consult must state the foreground gets a citation-STRIPPED view (CC-T2)"
+    ).toBe(true);
+  });
+});
