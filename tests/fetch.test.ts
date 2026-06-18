@@ -268,3 +268,91 @@ describe("scripts/fetch — name->identity index (D7)", () => {
     expect(runIn(home, ["resolve", "w2"]).json.identity).toBe("file/fixtureproj/widget");
   });
 });
+
+// --- consult (CC-T2): serve a cached claim. Foreground gets the citation-STRIPPED
+// view (claim + grade, never ⟦⟧@sha markup); --background gets the full cited digest.
+// A digest is written straight onto disk under the home's digests root (consult is a
+// local read — no clone, no network). ID matches the identity of fixtureUrl.
+function writeDigestFile(
+  home: string,
+  identity: string,
+  sha: string,
+  grade: string,
+  body: string,
+  ts = "2026-06-10T18:04:00Z",
+): string {
+  const segs = identity.split("/");
+  const repo = segs[segs.length - 1];
+  const dir = path.join(home, "digests", ...segs.slice(0, -1));
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${repo}@${sha.slice(0, 12)}.md`);
+  fs.writeFileSync(
+    file,
+    `---\nrepo: file://x\nsha: ${sha}\ntruth_grade: ${grade}\nts: ${ts}\n---\n${body}`,
+  );
+  return file;
+}
+
+describe("scripts/fetch — consult (CC-T2): serve a cached claim", () => {
+  const ID = "file/fixtureproj/widget"; // = the identity fixtureUrl normalizes to
+  const SHA_A = "1111111111111111111111111111111111111111";
+  const SHA_B = "2222222222222222222222222222222222222222";
+
+  it("misses (exit 0) for an unknown name — the normal 'ground fresh' signal", () => {
+    const r = runIn(freshHome(), ["consult", "nonesuch"]);
+    expect(r.status).toBe(0);
+    expect(r.json.status).toBe("miss");
+    expect(r.json.reason).toBe("unknown-identity");
+  });
+
+  it("misses (no-digest) when the identity is known but nothing is cached", () => {
+    const r = runIn(freshHome(), ["consult", fixtureUrl]);
+    expect(r.json.status).toBe("miss");
+    expect(r.json.reason).toBe("no-digest");
+    expect(r.json.identity).toBe(ID);
+  });
+
+  it("foreground view: stripped claim + grade, and NEVER ⟦⟧ markup (binary guarantee)", () => {
+    const home = freshHome();
+    writeDigestFile(home, ID, SHA_A, "docs",
+      "p-limit caps concurrency ⟦README.md:L1-L3⟧, and from training ⟦recall⟧.");
+    const r = runIn(home, ["consult", fixtureUrl]);
+    expect(r.json.status).toBe("hit");
+    expect(r.json.view).toBe("foreground");
+    expect(r.json.grade).toBe("docs");
+    expect(r.json.claims).toContain("caps concurrency");
+    // both the file citation and the recall marker are stripped from the claim
+    expect(r.json.claims).not.toContain("⟦");
+    expect(r.json.claims).not.toContain("README.md");
+    // the guarantee: no reserved-bracket markup anywhere in the foreground output
+    expect(r.stdout).not.toContain("⟦");
+  });
+
+  it("background view: the full cited digest, provenance intact", () => {
+    const home = freshHome();
+    writeDigestFile(home, ID, SHA_A, "docs", "A claim ⟦README.md:L1-L3⟧.");
+    const r = runIn(home, ["consult", fixtureUrl, "--background"]);
+    expect(r.json.status).toBe("hit");
+    expect(r.json.view).toBe("background");
+    expect(r.json.content).toContain("⟦README.md:L1-L3⟧");
+  });
+
+  it("selects the highest-grade digest among several for one identity", () => {
+    const home = freshHome();
+    // a NEWER docs digest and an OLDER inspect digest — grade must win over recency
+    writeDigestFile(home, ID, SHA_A, "docs", "docs claim ⟦README.md:L1-L2⟧.", "2026-06-10T00:00:00Z");
+    writeDigestFile(home, ID, SHA_B, "inspect", "inspected ⟦src/x.js:L1-L2⟧.", "2026-06-09T00:00:00Z");
+    const r = runIn(home, ["consult", fixtureUrl]);
+    expect(r.json.status).toBe("hit");
+    expect(r.json.truth_grade).toBe("inspect");
+  });
+
+  it("a bare name resolves to its cached digest after one grounding (index + consult together)", () => {
+    const home = freshHome();
+    runIn(home, ["docs", fixtureUrl]); // records identity + the 'widget' alias
+    writeDigestFile(home, ID, SHA_A, "docs", "cached ⟦README.md:L1-L2⟧.");
+    const r = runIn(home, ["consult", "widget"]); // bare name, no URL
+    expect(r.json.status).toBe("hit");
+    expect(r.json.identity).toBe(ID);
+  });
+});

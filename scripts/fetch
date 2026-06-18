@@ -12,11 +12,15 @@ Two levels on one progressively-materialized clone:
   fetch docs   <url>   treeless+sparse clone, materialize README + docs/   (docs grade)
   fetch source <url>   widen the SAME clone to the full working tree        (inspect grade)
 
-Plus a foreground index lookup (D7), the only read that does NOT touch the network:
+Plus two local reads that do NOT touch the network:
 
   fetch resolve <name|url>   name->identity index lookup; prints the identity +
                              canonical URL (and known digests) for a bare-name
                              re-ask, or status=unknown so the caller searches.
+  fetch consult <name|url>   serve the cached claim for the identity: the foreground
+                             CITATION-STRIPPED view (claim text + grade tag, never
+                             ⟦⟧@sha markup), or, with --background, the full cited
+                             digest. status=miss (exit 0) when there is none to serve.
 
 A successful docs/source fetch records its identity + canonical URL + name aliases
 into that index (under <root>/identity-index.json), so "the same unknown dep asked
@@ -297,6 +301,108 @@ def index_resolve(root: str, query: str) -> dict:
     return {"status": "unknown", "query": raw}
 
 
+# --- consult: serve a cached claim (CC-T2) ----------------------------------
+# The foreground/background split is the grade boundary (claim-cache design): the
+# foreground is served a citation-STRIPPED view (claim text + the grade tag, never
+# the raw ⟦path:Lx-Ly⟧@sha markup), the background gets the full cited digest. The
+# strip is enforced HERE in the binary, not as a prose rule, so "the foreground view
+# never contains ⟦⟧@sha" is a guarantee. A local read only -- no network, no clone.
+GRADE_RANK = {"run": 3, "inspect": 2, "docs": 1}
+
+# Strip any reserved-bracket token (a citation or the ⟦recall⟧ marker) plus an
+# optional @sha12 suffix. Deliberately broad: the foreground invariant is "no ⟦ and
+# no raw markup", so anything between ⟦ and ⟧ goes.
+_CITE_STRIP_RE = re.compile(r"⟦[^⟧]*⟧(?:@[0-9a-f]{12})?")
+
+
+def digest_roots(root: str):
+    """Where digests live: local (persisted by cold runs, ~/.tesser/digests/) and
+    bundled (curated keepers shipped in the skill repo's digests/)."""
+    local = os.path.join(root, "digests")
+    bundled = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "digests"
+    )
+    return [local, bundled]
+
+
+def find_digests(root: str, identity: str):
+    """All digest files for an identity across both roots (the multiple-digests-per-
+    identity lookup, Codex #10). The path layout is <root>/<host>/<org-path>/<repo>@
+    <sha12>.md, so the files are '<repo>@*.md' in the identity's parent dir."""
+    segs = [s for s in identity.split("/") if s]
+    if not segs:
+        return []
+    repo, sub = segs[-1], segs[:-1]
+    found = []
+    for r in digest_roots(root):
+        d = os.path.join(r, *sub)
+        if not os.path.isdir(d):
+            continue
+        for name in sorted(os.listdir(d)):
+            if name.startswith(repo + "@") and name.endswith(".md"):
+                found.append(os.path.join(d, name))
+    return found
+
+
+def split_frontmatter(text: str):
+    """Return (frontmatter_text, body_text) for a '---\\n…\\n---\\n<body>' digest.
+    No YAML dependency -- fetch stays stdlib-only (the venv is the validator's)."""
+    lines = text.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return "", text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "".join(lines[1:i]), "".join(lines[i + 1:])
+    return "".join(lines[1:]), ""
+
+
+def _fm_scalar(fm: str, key: str) -> str:
+    """Pull a top-level scalar (sha / truth_grade / ts) out of frontmatter text by
+    line, unquoting. Enough for digest SELECTION; not a general YAML parser."""
+    m = re.search(rf"^{re.escape(key)}:[ \t]*(.+?)[ \t]*$", fm, re.MULTILINE)
+    if not m:
+        return ""
+    v = m.group(1).strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1]
+    return v
+
+
+def parse_digest_meta(path: str) -> dict:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return {"path": path, "text": "", "body": "", "sha": "", "grade": "", "ts": ""}
+    fm, body = split_frontmatter(text)
+    return {
+        "path": path, "text": text, "body": body,
+        "sha": _fm_scalar(fm, "sha"),
+        "grade": _fm_scalar(fm, "truth_grade"),
+        "ts": _fm_scalar(fm, "ts"),
+    }
+
+
+def select_best_digest(paths):
+    """Deterministic digest selection (the plumbing half; WHICH CLAIM within it is
+    latent + eval-gated, CC-T6). Highest grade, then newest ts, then sha desc -- a
+    total order so the pick is stable. (Claim-level tie-break is a maintainer open.)"""
+    metas = [parse_digest_meta(p) for p in paths]
+    metas.sort(key=lambda m: (GRADE_RANK.get(m["grade"], 0), m["ts"], m["sha"]),
+               reverse=True)
+    return metas[0]
+
+
+def strip_citations(body: str) -> str:
+    """Remove every reserved-bracket token (citation or ⟦recall⟧) + optional @sha12,
+    then tidy the space the token left behind. The grade travels separately, as a
+    tag -- this is the model-visible view: claim text, no file:line markup."""
+    s = _CITE_STRIP_RE.sub("", body)
+    s = re.sub(r"[ \t]+([.,;:!?])", r"\1", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return s.strip()
+
+
 def run_git(args, cwd=None):
     """Run a git command, returning (returncode, stdout, stderr). Never raises
     on a nonzero git -- a failed clone is a normal outcome, not an exception."""
@@ -427,6 +533,43 @@ def cmd_resolve(query: str) -> None:
     print(json.dumps(index_resolve(state_root(), query), ensure_ascii=False))
 
 
+def cmd_consult(query: str, background: bool) -> None:
+    """Serve a cached claim for a name/URL (CC-T2). Default (foreground) returns the
+    citation-STRIPPED view (claim text + grade tag, no ⟦⟧@sha markup); --background
+    returns the full cited digest. A 'miss' (no identity or no digest) exits 0 -- it
+    is the normal signal to ground fresh, not an error."""
+    root = state_root()
+    res = index_resolve(root, query)
+    if res.get("status") != "ok":
+        print(json.dumps({"status": "miss", "reason": "unknown-identity",
+                          "query": query}, ensure_ascii=False))
+        return
+    identity = res["identity"]
+    paths = find_digests(root, identity)
+    if not paths:
+        print(json.dumps({"status": "miss", "reason": "no-digest",
+                          "identity": identity}, ensure_ascii=False))
+        return
+    best = select_best_digest(paths)
+    common = {
+        "status": "hit",
+        "identity": identity,
+        "sha": best["sha"],
+        "truth_grade": best["grade"],
+        "digest_path": best["path"],
+    }
+    if background:
+        # Full provenance: the cited digest verbatim. The background actor may open
+        # citations, clone, build -- it gets the markup.
+        common.update({"view": "background", "content": best["text"]})
+    else:
+        # Model-visible: claim text + grade, NEVER the raw ⟦⟧@sha markup (the
+        # citation-opening invariant, enforced here in the binary).
+        common.update({"view": "foreground", "grade": best["grade"],
+                       "claims": strip_citations(best["body"])})
+    print(json.dumps(common, ensure_ascii=False))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fetch",
@@ -449,6 +592,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="resolve a bare name or URL to a known identity (index lookup), print JSON",
     )
     pr.add_argument("query", help="a bare package/import name, or a git URL")
+    pc = sub.add_parser(
+        "consult",
+        help="serve the cached claim for a name/URL: foreground stripped view "
+             "(claim + grade), or --background full cited digest. Print JSON.",
+    )
+    pc.add_argument("query", help="a bare package/import name, or a git URL")
+    pc.add_argument(
+        "--background", action="store_true",
+        help="return the full cited digest (the background actor's view) instead "
+             "of the citation-stripped foreground view",
+    )
     return parser
 
 
@@ -456,6 +610,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.command == "resolve":
         cmd_resolve(args.query)
+    elif args.command == "consult":
+        cmd_consult(args.query, args.background)
     else:
         cmd_fetch(args.level, args.url, getattr(args, "alias", None))
 
