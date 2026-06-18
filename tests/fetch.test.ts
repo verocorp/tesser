@@ -241,4 +241,30 @@ describe("scripts/fetch — name->identity index (D7)", () => {
     expect(r.status).toBe(2);
     expect(r.json).toBeNull();
   });
+
+  // D7 requires the alias map to key on the PACKAGE/IMPORT name, not just the repo
+  // path — the typed name often differs from the repo basename. --alias carries it.
+  it("records the developer's typed name (--alias) so a name != repo-basename re-ask resolves", () => {
+    const home = freshHome();
+    // the repo basename is "widget"; the dev typed "wdgt" — without --alias it would miss
+    const missBefore = runIn(home, ["resolve", "wdgt"]);
+    expect(missBefore.json.status).toBe("unknown");
+
+    const fetched = runIn(home, ["docs", fixtureUrl, "--alias", "wdgt"]);
+    expect(fetched.json.status).toBe("ok");
+
+    const hit = runIn(home, ["resolve", "wdgt"]);
+    expect(hit.json.status).toBe("ok");
+    expect(hit.json.identity).toBe("file/fixtureproj/widget");
+    expect(hit.json.aliases).toContain("wdgt");
+    // the URL-derived aliases still work alongside the typed one
+    expect(runIn(home, ["resolve", "widget"]).json.identity).toBe("file/fixtureproj/widget");
+  });
+
+  it("accepts multiple --alias values (a dep can have several names)", () => {
+    const home = freshHome();
+    runIn(home, ["docs", fixtureUrl, "--alias", "w1", "--alias", "w2"]);
+    expect(runIn(home, ["resolve", "w1"]).json.identity).toBe("file/fixtureproj/widget");
+    expect(runIn(home, ["resolve", "w2"]).json.identity).toBe("file/fixtureproj/widget");
+  });
 });

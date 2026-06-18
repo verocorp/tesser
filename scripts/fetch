@@ -20,7 +20,10 @@ Plus a foreground index lookup (D7), the only read that does NOT touch the netwo
 
 A successful docs/source fetch records its identity + canonical URL + name aliases
 into that index (under <root>/identity-index.json), so "the same unknown dep asked
-twice" resolves the second time from a bare name without re-searching.
+twice" resolves the second time from a bare name without re-searching. Pass
+`--alias <name>` (repeatable) to also record the package/import name the developer
+typed, for the common case where it differs from the repo basename (e.g. the npm
+name "lru-cache" for the repo "node-lru-cache").
 
 Both fetch levels print one JSON object to stdout describing what was materialized
 and the
@@ -380,7 +383,7 @@ def list_materialized(path: str, level: str):
     return out
 
 
-def cmd_fetch(level: str, url: str) -> None:
+def cmd_fetch(level: str, url: str, aliases=None) -> None:
     if shutil.which("git") is None:
         fail_env("git is not on PATH")
     norm = normalize_identity(url)
@@ -397,9 +400,12 @@ def cmd_fetch(level: str, url: str) -> None:
         # unreachable repo (we already cloned it).
         fail_env(f"rev-parse HEAD failed in {path}: {short_stderr(err)}")
     # Record into the name->identity index so a later bare-name re-ask resolves
-    # without searching (D7). Best-effort: an index write must never fail a fetch.
+    # without searching (D7). The URL-derived aliases (repo basename / org-repo) are
+    # auto-added; --alias carries the package/import name the developer actually typed
+    # (e.g. "lru-cache" for the repo "node-lru-cache"), which the URL path cannot
+    # supply. Best-effort: an index write must never fail a fetch.
     try:
-        index_record(root, identity, canonical_url)
+        index_record(root, identity, canonical_url, extra_aliases=aliases)
     except Exception:
         pass
     print(json.dumps({
@@ -431,6 +437,12 @@ def build_parser() -> argparse.ArgumentParser:
     for level in ("docs", "source"):
         p = sub.add_parser(level, help=f"materialize {level} for a repo, print JSON")
         p.add_argument("url", help="the git URL (recalled, pasted, or search-resolved)")
+        p.add_argument(
+            "--alias", action="append", metavar="NAME",
+            help="a package/import name the developer typed for this repo (repeatable); "
+                 "recorded into the index so a later bare-name re-ask resolves (D7). "
+                 "Use when the typed name differs from the repo basename.",
+        )
         p.set_defaults(level=level)
     pr = sub.add_parser(
         "resolve",
@@ -445,7 +457,7 @@ def main() -> None:
     if args.command == "resolve":
         cmd_resolve(args.query)
     else:
-        cmd_fetch(args.level, args.url)
+        cmd_fetch(args.level, args.url, getattr(args, "alias", None))
 
 
 if __name__ == "__main__":
