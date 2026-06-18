@@ -2,17 +2,27 @@
 # Base config ONLY — the provision-only boundary (see ../README.md).
 # Installs docker + git so the box is repro-ready. The actual issue repro is
 # the bundle's repro.sh, run over SSH — never here.
+#
+# Every dependency is PINNED to a specific version. Determinism has two halves:
+# fresh isolation kills cross-contamination; pinned versions kill time-drift.
+# Versions below are what ubuntu-2204-lts (jammy) + the docker repo resolved on
+# 2026-06-18 (captured from a live box via dpkg-query).
+#
+# CAVEAT — this pins the explicitly-installed packages, not the full transitive
+# closure, and pinned versions can be GC'd from the live apt repos over time. For
+# byte-exact long-term recreation, bake a pinned image (packer) or pin against an
+# apt snapshot mirror. That's the next determinism level above this.
 package_update: true
 packages:
-  - git
-  - ca-certificates
-  - curl
+  - [git, "1:2.34.1-1ubuntu1.17"]
+  - [ca-certificates, "20260601~22.04.1"]
+  - [curl, "7.81.0-1ubuntu1.24"]
 runcmd:
   - install -m 0755 -d /etc/apt/keyrings
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   - chmod a+r /etc/apt/keyrings/docker.asc
   - echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu jammy stable" > /etc/apt/sources.list.d/docker.list
   - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  - apt-get install -y docker-ce=5:29.5.3-1~ubuntu.22.04~jammy docker-ce-cli=5:29.5.3-1~ubuntu.22.04~jammy containerd.io=2.2.4-1~ubuntu.22.04~jammy docker-compose-plugin=5.1.4-1~ubuntu.22.04~jammy
   - usermod -aG docker ubuntu
   - touch /var/lib/cloud/instance/tesser-base-ready
