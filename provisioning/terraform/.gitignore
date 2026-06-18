@@ -1,0 +1,10 @@
+# Local state is the teardown record — never commit (may contain IPs/secrets).
+*.tfstate
+*.tfstate.*
+# Local var overrides — may contain project IDs / IPs.
+*.tfvars
+# Provider plugins / cache.
+.terraform/
+.terraform.lock.hcl
+crash.log
+crash.*.log
