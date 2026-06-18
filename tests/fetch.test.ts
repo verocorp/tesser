@@ -155,3 +155,90 @@ describe("scripts/fetch — implicit verification (never block on certainty)", (
     expect(r.stderr).toMatch(/not a parseable git URL/);
   });
 });
+
+// --- name->identity index (D7): the bare-name re-ask resolves to a known identity
+// + canonical URL without re-searching. Each test uses its OWN throwaway home so the
+// record/resolve ordering is deterministic and isolated from the docs/source tests.
+function freshHome(): string {
+  return fs.mkdtempSync(path.join(tmpRoot, "idx-"));
+}
+function runIn(home: string, args: string[]) {
+  const res = spawnSync(fetchScript, args, {
+    encoding: "utf8",
+    env: { ...process.env, TESSER_HOME: home },
+  });
+  if (res.error) throw res.error;
+  let json: any = null;
+  try {
+    json = JSON.parse(res.stdout);
+  } catch {
+    /* usage/env errors print to stderr, not JSON */
+  }
+  return { status: res.status, json, stdout: res.stdout, stderr: res.stderr };
+}
+
+describe("scripts/fetch — name->identity index (D7)", () => {
+  it("a bare name is unknown before any grounding (a 'go search' signal, exit 0)", () => {
+    const r = runIn(freshHome(), ["resolve", "widget"]);
+    expect(r.status).toBe(0);
+    expect(r.json.status).toBe("unknown");
+    expect(r.json.query).toBe("widget");
+  });
+
+  it("a successful fetch records the identity; a later bare-name re-ask resolves (the founding case)", () => {
+    const home = freshHome();
+    const fetched = runIn(home, ["docs", fixtureUrl]);
+    expect(fetched.json.status).toBe("ok");
+    // second ask, bare repo name, no URL — must resolve from the index, not search
+    const r = runIn(home, ["resolve", "widget"]);
+    expect(r.status).toBe(0);
+    expect(r.json.status).toBe("ok");
+    expect(r.json.matched).toBe("alias");
+    expect(r.json.from_index).toBe(true);
+    expect(r.json.identity).toBe("file/fixtureproj/widget");
+    expect(r.json.url).toBe(fixtureUrl); // the stored canonical URL the background needs for drift
+    expect(r.json.digests).toEqual([]); // empty until persist (T4) populates it
+  });
+
+  it("resolves the org/repo alias and is case-insensitive on the name", () => {
+    const home = freshHome();
+    runIn(home, ["docs", fixtureUrl]);
+    const orgRepo = runIn(home, ["resolve", "fixtureproj/widget"]);
+    expect(orgRepo.json.status).toBe("ok");
+    expect(orgRepo.json.identity).toBe("file/fixtureproj/widget");
+    const upper = runIn(home, ["resolve", "WIDGET"]);
+    expect(upper.json.status).toBe("ok");
+    expect(upper.json.identity).toBe("file/fixtureproj/widget");
+  });
+
+  it("a URL resolves from normalization even when never recorded (from_index=false)", () => {
+    const r = runIn(freshHome(), ["resolve", fixtureUrl]);
+    expect(r.json.status).toBe("ok");
+    expect(r.json.matched).toBe("url");
+    expect(r.json.from_index).toBe(false);
+    expect(r.json.identity).toBe("file/fixtureproj/widget");
+  });
+
+  it("a corrupt index degrades to 'unknown', never a crash", () => {
+    const home = freshHome();
+    fs.writeFileSync(path.join(home, "identity-index.json"), "{ this is not json");
+    const r = runIn(home, ["resolve", "widget"]);
+    expect(r.status).toBe(0);
+    expect(r.json.status).toBe("unknown");
+    expect(r.stderr).not.toContain("Traceback");
+  });
+
+  it("an index write never blocks acquisition (fetch still succeeds with a corrupt index)", () => {
+    const home = freshHome();
+    fs.writeFileSync(path.join(home, "identity-index.json"), "garbage");
+    const fetched = runIn(home, ["docs", fixtureUrl]);
+    expect(fetched.status).toBe(0);
+    expect(fetched.json.status).toBe("ok"); // the load_index skeleton rebuilt over the garbage
+  });
+
+  it("exits 2 (usage) when resolve is given no query", () => {
+    const r = runIn(freshHome(), ["resolve"]);
+    expect(r.status).toBe(2);
+    expect(r.json).toBeNull();
+  });
+});

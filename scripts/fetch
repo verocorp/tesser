@@ -12,7 +12,18 @@ Two levels on one progressively-materialized clone:
   fetch docs   <url>   treeless+sparse clone, materialize README + docs/   (docs grade)
   fetch source <url>   widen the SAME clone to the full working tree        (inspect grade)
 
-Both print one JSON object to stdout describing what was materialized and the
+Plus a foreground index lookup (D7), the only read that does NOT touch the network:
+
+  fetch resolve <name|url>   name->identity index lookup; prints the identity +
+                             canonical URL (and known digests) for a bare-name
+                             re-ask, or status=unknown so the caller searches.
+
+A successful docs/source fetch records its identity + canonical URL + name aliases
+into that index (under <root>/identity-index.json), so "the same unknown dep asked
+twice" resolves the second time from a bare name without re-searching.
+
+Both fetch levels print one JSON object to stdout describing what was materialized
+and the
 pin (the clone's rev-parse HEAD -- offline, never chasing upstream, D11). The
 clone is keyed by normalized identity and reused across calls, so `source` after
 `docs` widens in place at the same pin. Caching, reuse, and the warm/cold
@@ -154,6 +165,135 @@ def normalize_identity(url: str):
     return identity, canonical_url
 
 
+# --- name->identity index (D7) ----------------------------------------------
+# A small JSON map under the state root that lets a bare-name re-ask ("p-limit")
+# resolve to a known identity + canonical URL without re-searching, and records the
+# canonical URL the background needs for drift (Codex #7). It also holds the digests
+# known for an identity, so a lookup over multiple digests per identity is one read
+# (Codex #10). It is an OPTIMIZATION: every write is fail-silent and never blocks
+# acquisition; a miss just means "go search". Atomic multi-writer hardening is T7.
+INDEX_VERSION = 1
+
+
+def index_path(root: str) -> str:
+    return os.path.join(root, "identity-index.json")
+
+
+def _empty_index() -> dict:
+    return {"version": INDEX_VERSION, "aliases": {}, "identities": {}}
+
+
+def load_index(root: str) -> dict:
+    """Load the index, returning a fresh skeleton on a missing / corrupt / malformed
+    file. Never raises -- a broken index degrades to 'no cache', not a crash."""
+    try:
+        with open(index_path(root), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return _empty_index()
+    if not isinstance(data, dict) or not isinstance(data.get("aliases"), dict) \
+            or not isinstance(data.get("identities"), dict):
+        return _empty_index()
+    return data
+
+
+def save_index(root: str, idx: dict) -> bool:
+    """Atomically write the index (temp + os.replace). Returns False on any error
+    instead of raising -- the index is best-effort, never load-bearing for a fetch."""
+    try:
+        os.makedirs(root, mode=0o700, exist_ok=True)
+        path = index_path(root)
+        tmp = f"{path}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(idx, fh, ensure_ascii=False)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def derive_aliases(identity: str):
+    """The aliases an identity is reachable by, lowest-effort first: the repo
+    basename ('p-limit'), org/repo ('sindresorhus/p-limit'), and the full identity.
+    identity is already lowercased, so these are too. De-duplicated, order-stable."""
+    segs = [s for s in identity.split("/") if s]
+    out = []
+    if segs:
+        out.append(segs[-1])
+    if len(segs) >= 2:
+        out.append("/".join(segs[-2:]))
+    out.append(identity)
+    seen, uniq = set(), []
+    for a in out:
+        if a and a not in seen:
+            seen.add(a)
+            uniq.append(a)
+    return uniq
+
+
+def index_record(root: str, identity: str, canonical_url: str,
+                 extra_aliases=None, digest: str = None) -> bool:
+    """Upsert an identity: store its canonical URL, register its aliases (auto-derived
+    + any extra package/import names a caller passes), and optionally append a digest
+    path (multiple digests per identity, Codex #10). Fail-silent -- returns the
+    save_index result but a False never propagates as an error to the fetch."""
+    idx = load_index(root)
+    ents = idx["identities"]
+    ent = ents.get(identity) or {"canonical_url": canonical_url, "aliases": [], "digests": []}
+    if canonical_url:
+        ent["canonical_url"] = canonical_url
+    aliases = list(derive_aliases(identity))
+    if extra_aliases:
+        aliases += [a for a in extra_aliases if a]
+    for a in aliases:
+        al = a.strip().lower()
+        if not al:
+            continue
+        idx["aliases"][al] = identity
+        if a not in ent["aliases"]:
+            ent["aliases"].append(a)
+    if digest and digest not in ent["digests"]:
+        ent["digests"].append(digest)
+    ents[identity] = ent
+    return save_index(root, idx)
+
+
+def index_resolve(root: str, query: str) -> dict:
+    """Resolve a query to a known identity. A URL / clone-spec normalizes directly
+    (answerable even when absent from the index); a bare name is looked up in the
+    alias map. Read-only -- recording happens on fetch/persist, never here. Returns a
+    result dict: status 'ok' (with identity/url/aliases/digests/matched/from_index)
+    or 'unknown' (a bare name not in the index -- the caller should search)."""
+    raw = (query or "").strip()
+    idx = load_index(root)
+    norm = normalize_identity(raw)
+    if norm is not None:
+        identity, canonical_url = norm
+        ent = idx["identities"].get(identity)
+        return {
+            "status": "ok",
+            "matched": "url",
+            "from_index": ent is not None,
+            "identity": identity,
+            "url": (ent or {}).get("canonical_url") or canonical_url,
+            "aliases": (ent or {}).get("aliases", []),
+            "digests": (ent or {}).get("digests", []),
+        }
+    identity = idx["aliases"].get(raw.lower())
+    ent = idx["identities"].get(identity) if identity else None
+    if ent is not None:
+        return {
+            "status": "ok",
+            "matched": "alias",
+            "from_index": True,
+            "identity": identity,
+            "url": ent.get("canonical_url", ""),
+            "aliases": ent.get("aliases", []),
+            "digests": ent.get("digests", []),
+        }
+    return {"status": "unknown", "query": raw}
+
+
 def run_git(args, cwd=None):
     """Run a git command, returning (returncode, stdout, stderr). Never raises
     on a nonzero git -- a failed clone is a normal outcome, not an exception."""
@@ -256,6 +396,12 @@ def cmd_fetch(level: str, url: str) -> None:
         # A clone with no resolvable HEAD is an environment failure, not an
         # unreachable repo (we already cloned it).
         fail_env(f"rev-parse HEAD failed in {path}: {short_stderr(err)}")
+    # Record into the name->identity index so a later bare-name re-ask resolves
+    # without searching (D7). Best-effort: an index write must never fail a fetch.
+    try:
+        index_record(root, identity, canonical_url)
+    except Exception:
+        pass
     print(json.dumps({
         "status": "ok",
         "identity": identity,
@@ -266,6 +412,13 @@ def cmd_fetch(level: str, url: str) -> None:
         "files": list_materialized(path, level),
         "from_cache": existed,
     }, ensure_ascii=False))
+
+
+def cmd_resolve(query: str) -> None:
+    """Foreground bare-name / URL lookup against the name->identity index (D7).
+    Always exits 0: an 'unknown' status is a normal 'go search' signal, not an
+    error. Only a missing argument is a usage error (handled by argparse)."""
+    print(json.dumps(index_resolve(state_root(), query), ensure_ascii=False))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -279,12 +432,20 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(level, help=f"materialize {level} for a repo, print JSON")
         p.add_argument("url", help="the git URL (recalled, pasted, or search-resolved)")
         p.set_defaults(level=level)
+    pr = sub.add_parser(
+        "resolve",
+        help="resolve a bare name or URL to a known identity (index lookup), print JSON",
+    )
+    pr.add_argument("query", help="a bare package/import name, or a git URL")
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    cmd_fetch(args.level, args.url)
+    if args.command == "resolve":
+        cmd_resolve(args.query)
+    else:
+        cmd_fetch(args.level, args.url)
 
 
 if __name__ == "__main__":
