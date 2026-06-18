@@ -85,3 +85,21 @@ Deferred work with context. Items land here only via a review decision; each car
 - **Cons:** Register is taste-heavy and hard to pin with a deterministic gate — likely an LLM-judge principle, not a structural one. Risk of swinging too breezy and underplaying a real correction.
 - **Context:** Raised by Chris on the 2026-06-14 Letta eval, distinct from the now-done "don't narrate the act of grounding" mechanical fix. He wants it tracked, not built now. Best landed as a judge principle + an Output-contract voice note, calibrated against his judgments (the P4 LLM-judge-trained-on-his-corpus plan).
 - **Depends on / blocked by:** not now (deferred). Pairs with the readability item and the `forbidden_lexicon_final` / writing-style work.
+
+## Serve-time digest integrity (claim-cache stage A — deferred D4, 2026-06-18)
+
+- **What:** Verify a digest's `digest_sha256` before the foreground serves a cached claim; on mismatch, treat as a miss and re-ground rather than serve. Today D10 logs the hash passively and D35 accepts filesystem trust — nothing acts on a mismatch.
+- **Why:** Stage A makes the foreground serve cached claims straight to the developer (beat-1). A stale, corrupted, or build-tampered digest then feeds a false fact at full confidence. tesser runs untrusted build code that can write under `~/.tesser/`, so the tamper path is real.
+- **Pros:** Closes the corruption + build-tamper vector at the moment it became load-bearing; cheap (one hash compare per serve); degrades gracefully to a normal miss.
+- **Cons:** Build-ahead of demand under v1's trusted-dev posture; the logged hash is only as trustworthy as the log; adds a check to the hot serve path.
+- **Context:** Decided B (serve unchecked) in the 2026-06-18 /plan-eng-review on `docs/claim-cache-design.md` — maintainer: "tampering is not the main issue nor do we need it now when only trusted devs are using it." Narrows the existing "Digest integrity verification (D10/D35)" TODO to the serve path specifically.
+- **Depends on / blocked by:** Trigger — audience widens past trusted devs, or the hosted/sandboxed tier. Do not build for the alpha.
+
+## Cache expiry / claim-validity (claim-cache stage A — the bigger problem, 2026-06-18)
+
+- **What:** A real expiry + validity story for cached claims: when a single claim goes stale vs the whole digest; how expiry interacts with append-only digest growth; eviction/retention (overlaps the existing `~/.tesser/` retention TODO); cross-commit validity (a claim minted at one sha consulted at another).
+- **Why:** Stage A serves cached claims. Its only expiry mechanism in v1 is the existing async-drift (serve → background drift-check on the pinned sha → supersede if upstream moved). That catches upstream movement but not claim-level staleness, growth, or eviction. The maintainer flagged this as "bigger cache expiry problems to solve and sort out first" — explicitly NOT for now, but the lurking real problem behind reuse.
+- **Pros:** Makes reuse trustworthy over time, not just on a fresh seed; bounds disk; defines claim validity windows rather than trusting forever.
+- **Cons:** Genuinely hard (claim-granularity validity is unsolved); build-ahead of demand; entangled with the deferred granular-claim-store question.
+- **Context:** Surfaced in the 2026-06-18 /plan-eng-review on `docs/claim-cache-design.md`. v1 ships with async-drift as the only expiry mechanism and that is accepted. Pairs with the granular-claim-store and cross-commit-citations TODOs.
+- **Depends on / blocked by:** Not now (maintainer deferred). Natural to take up alongside the granular-claim-store decision once retrieval evals justify finer claims.
