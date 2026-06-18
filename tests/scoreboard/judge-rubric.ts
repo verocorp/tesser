@@ -127,7 +127,115 @@ export function buildJudgePrompt(input: string | JudgeTurn[]): string {
     "6. a line 'RECURRING NOISE: <a caveat/narration/markup that recurs — the run-vs-read hedge,",
     "   raw ⟦…⟧@sha citation markup, machinery progress lines — quote one + how many turns it",
     "   appears in, or 'none'>'",
+    "7. a FINAL machine-readable line, on its own, EXACTLY this shape (real JSON, no prose after it):",
+    "   VERDICTS {\"1\":\"PASS\",\"2\":\"PARTIAL\",\"3\":\"PASS\",\"4\":\"PASS\",\"5\":\"PASS\",\"6\":\"PASS\",\"7\":\"PASS\",\"8\":\"PASS\",\"9\":\"FAIL\",\"10\":\"NA\",\"11\":\"NA\",\"weakest\":9}",
+    "   One key per principle 1-11; each value is exactly PASS, PARTIAL, FAIL, or NA (NA only where the",
+    "   principle does not apply — e.g. 11 on an overview). 'weakest' is the principle number from line 2.",
     "",
     convo,
   ].join("\n");
+}
+
+// ── Cross-modal panel: parse + agreement (pure, deterministic — the runner spawns
+// two model FAMILIES on the prompt above; these read their verdict lines and compute
+// agreement, so the decorrelated-blind-spot check is machine logic, not in-head.) ──
+
+export type Verdict = "PASS" | "PARTIAL" | "FAIL" | "NA";
+const VERDICT_SET = new Set<Verdict>(["PASS", "PARTIAL", "FAIL", "NA"]);
+
+export interface FamilyVerdict {
+  /** the model family that produced this — e.g. "claude", "codex" */
+  family: string;
+  /** principle number → verdict; only the keys the family actually returned */
+  perPrinciple: Record<number, Verdict>;
+  weakest?: number;
+  /** true when no VERDICTS line could be parsed (the family answer is unusable for the gate) */
+  parseFailed: boolean;
+}
+
+/**
+ * Pull the machine-readable `VERDICTS {…}` line out of a family's raw answer.
+ * Lenient by design: the family prints a markdown table first and (for codex) the
+ * stdout carries CLI wrapper noise, so we scan every line for the marker + JSON and
+ * take the LAST valid one (the final answer, not a streamed partial). Unknown values
+ * are dropped, not coerced. Returns null if nothing parseable is present.
+ */
+export function parseVerdictLine(raw: string): { perPrinciple: Record<number, Verdict>; weakest?: number } | null {
+  let found: { perPrinciple: Record<number, Verdict>; weakest?: number } | null = null;
+  for (const line of raw.split(/\r?\n/)) {
+    const at = line.indexOf("VERDICTS");
+    if (at === -1) continue;
+    const brace = line.indexOf("{", at);
+    if (brace === -1) continue;
+    const end = line.lastIndexOf("}");
+    if (end <= brace) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(line.slice(brace, end + 1));
+    } catch {
+      continue;
+    }
+    if (!obj || typeof obj !== "object") continue;
+    const perPrinciple: Record<number, Verdict> = {};
+    let weakest: number | undefined;
+    for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+      if (k === "weakest") {
+        const n = Number(v);
+        if (Number.isInteger(n)) weakest = n;
+        continue;
+      }
+      const n = Number(k);
+      if (!Number.isInteger(n)) continue;
+      const val = String(v).toUpperCase() as Verdict;
+      if (VERDICT_SET.has(val)) perPrinciple[n] = val;
+    }
+    if (Object.keys(perPrinciple).length > 0) found = { perPrinciple, weakest };
+  }
+  return found;
+}
+
+export interface CrossModalSummary {
+  /** per principle, every family's verdict (missing → undefined) */
+  rows: { n: number; name: string; verdicts: Record<string, Verdict | undefined>; disagree: boolean }[];
+  /** family → does it pass (no FAIL on any applicable principle) */
+  familyPass: Record<string, boolean>;
+  /** principle numbers where the families disagree (decorrelated-blind-spot signal) */
+  disagreements: number[];
+  /** the panel gate: at least one family present, every present family passes, and no FAIL anywhere */
+  panelPass: boolean;
+  /** families whose verdict line could not be parsed */
+  unusableFamilies: string[];
+}
+
+/** A family "passes" when none of the principles it scored is a FAIL (PARTIAL is a soft pass). */
+function familyPasses(v: FamilyVerdict): boolean {
+  if (v.parseFailed) return false;
+  return !Object.values(v.perPrinciple).some((x) => x === "FAIL");
+}
+
+/**
+ * Compute cross-family agreement over the parsed verdicts. The gate mirrors the
+ * cross-modal method (gbrain runner/aggregate, frame-walk panel): a FAIL from ANY
+ * family sinks the run — blind spots are not allowed to cancel out.
+ */
+export function crossModalSummary(families: FamilyVerdict[]): CrossModalSummary {
+  const rows = PRINCIPLES.map((p) => {
+    const verdicts: Record<string, Verdict | undefined> = {};
+    for (const f of families) verdicts[f.family] = f.perPrinciple[p.n];
+    const present = Object.values(verdicts).filter((x): x is Verdict => x !== undefined);
+    const disagree = new Set(present).size > 1;
+    return { n: p.n, name: p.name, verdicts, disagree };
+  });
+  const familyPass: Record<string, boolean> = {};
+  for (const f of families) familyPass[f.family] = familyPasses(f);
+  const usable = families.filter((f) => !f.parseFailed);
+  const disagreements = rows.filter((r) => r.disagree).map((r) => r.n);
+  const panelPass = usable.length > 0 && usable.every((f) => familyPasses(f));
+  return {
+    rows,
+    familyPass,
+    disagreements,
+    panelPass,
+    unusableFamilies: families.filter((f) => f.parseFailed).map((f) => f.family),
+  };
 }

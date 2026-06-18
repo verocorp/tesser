@@ -20,6 +20,9 @@ import {
   PRINCIPLES,
   KNOWN_FAILURE_MODES,
   buildJudgePrompt,
+  parseVerdictLine,
+  crossModalSummary,
+  type FamilyVerdict,
 } from "./judge-rubric.ts";
 
 describe("CALIBRATED Obligation B — rubric is well-formed (free)", () => {
@@ -77,5 +80,98 @@ describe("CALIBRATED Obligation B — rubric is well-formed (free)", () => {
     // targeted, not global: the prompt must forbid distrusting everything
     expect(prompt.toLowerCase()).toMatch(/not generalize|distrusting everything|useless/);
     for (const p of PRINCIPLES) expect(prompt.toUpperCase()).toContain(p.name.toUpperCase());
+  });
+
+  it("the prompt demands a machine-readable VERDICTS line for the cross-modal gate", () => {
+    const prompt = buildJudgePrompt("X");
+    expect(prompt).toContain("VERDICTS");
+    expect(prompt).toMatch(/PASS, PARTIAL, FAIL, or NA/);
+  });
+});
+
+describe("cross-modal panel — verdict parsing (pure, free)", () => {
+  it("pulls the VERDICTS json out of a family answer with table + wrapper noise", () => {
+    const raw = [
+      "| # | Principle | Verdict | Evidence | Why |",
+      "| 1 | answer-first | PASS | 'it does X' | leads |",
+      "WEAKEST PRINCIPLE: 9 — machinery silence",
+      'VERDICTS {"1":"PASS","2":"PARTIAL","9":"FAIL","11":"NA","weakest":9}',
+      "tokens used",
+    ].join("\n");
+    const v = parseVerdictLine(raw);
+    expect(v).not.toBeNull();
+    expect(v!.perPrinciple[1]).toBe("PASS");
+    expect(v!.perPrinciple[2]).toBe("PARTIAL");
+    expect(v!.perPrinciple[9]).toBe("FAIL");
+    expect(v!.perPrinciple[11]).toBe("NA");
+    expect(v!.weakest).toBe(9);
+  });
+
+  it("lowercases/uppercases verdicts and drops unknown values", () => {
+    const v = parseVerdictLine('VERDICTS {"1":"pass","2":"bogus","3":"fail"}');
+    expect(v!.perPrinciple[1]).toBe("PASS");
+    expect(v!.perPrinciple[2]).toBeUndefined();
+    expect(v!.perPrinciple[3]).toBe("FAIL");
+  });
+
+  it("takes the LAST valid VERDICTS line (final answer beats a streamed partial)", () => {
+    const raw = ['VERDICTS {"1":"FAIL"}', "...revised...", 'VERDICTS {"1":"PASS"}'].join("\n");
+    expect(parseVerdictLine(raw)!.perPrinciple[1]).toBe("PASS");
+  });
+
+  it("returns null when no VERDICTS line is present", () => {
+    expect(parseVerdictLine("no machine line here, just prose")).toBeNull();
+  });
+});
+
+describe("cross-modal panel — agreement gate (pure, free)", () => {
+  const fam = (family: string, per: Record<number, string>, parseFailed = false): FamilyVerdict => ({
+    family,
+    perPrinciple: per as FamilyVerdict["perPrinciple"],
+    parseFailed,
+  });
+
+  it("passes when both families agree with no FAIL", () => {
+    const s = crossModalSummary([
+      fam("claude", { 1: "PASS", 2: "PARTIAL" }),
+      fam("codex", { 1: "PASS", 2: "PARTIAL" }),
+    ]);
+    expect(s.panelPass).toBe(true);
+    expect(s.disagreements).toEqual([]);
+    expect(s.familyPass).toEqual({ claude: true, codex: true });
+  });
+
+  it("a FAIL from EITHER family sinks the panel (blind spots can't cancel out)", () => {
+    const s = crossModalSummary([
+      fam("claude", { 9: "PASS" }),
+      fam("codex", { 9: "FAIL" }),
+    ]);
+    expect(s.familyPass).toEqual({ claude: true, codex: false });
+    expect(s.panelPass).toBe(false);
+    expect(s.disagreements).toContain(9);
+  });
+
+  it("flags disagreement even when both families pass (the decorrelation signal)", () => {
+    const s = crossModalSummary([
+      fam("claude", { 4: "PASS" }),
+      fam("codex", { 4: "PARTIAL" }),
+    ]);
+    expect(s.panelPass).toBe(true); // neither is a FAIL
+    expect(s.disagreements).toEqual([4]);
+  });
+
+  it("a family whose verdict didn't parse is unusable and ignored by the gate", () => {
+    const s = crossModalSummary([
+      fam("claude", { 1: "PASS" }),
+      fam("codex", {}, true),
+    ]);
+    expect(s.unusableFamilies).toEqual(["codex"]);
+    expect(s.panelPass).toBe(true); // claude (the only usable family) passes
+  });
+
+  it("no usable family → the gate cannot pass", () => {
+    const s = crossModalSummary([fam("claude", {}, true), fam("codex", {}, true)]);
+    expect(s.panelPass).toBe(false);
+    expect(s.unusableFamilies).toEqual(["claude", "codex"]);
   });
 });
