@@ -562,18 +562,34 @@ describe("stub-marker consistency", () => {
 // persist INSTRUCTION; the docs-grade digest itself validating (empty commands +
 // README citation) is covered by the validator's D8 tests (CC-T3).
 describe("gate 9: overview-persist (D3/CC-T4, reverses D47)", () => {
-  it("the brief persists a docs-grade map at the ground (overview) depth", () => {
+  it("the brief persists a map at the ground (overview) depth, at the grade reached", () => {
     expect(
-      /persist a docs-grade map/i.test(briefText),
-      "subagent-brief.md must instruct the ground depth to persist a docs-grade map (D3)"
+      /persist a map at either depth/i.test(briefText),
+      "subagent-brief.md must instruct the ground depth to persist a map (D3)"
     ).toBe(true);
+    // an overview persists at the grade it reached — docs (README only) or inspect (read source).
+    // \*{0,2} tolerates the markdown bold around "docs"/"inspect".
     expect(
-      /truth_grade[:\s]+docs/.test(briefText),
-      "the ground-depth map must be docs-grade (truth_grade: docs)"
+      /docs\*{0,2} if you read only/i.test(briefText) && /inspect\*{0,2} if you read source/i.test(briefText),
+      "the ground-depth map's grade is whatever was reached: docs (README only) or inspect (read source)"
     ).toBe(true);
     expect(
       /commands.{0,24}empty/i.test(briefText),
-      "the docs-grade map allows empty commands (an overview ran none — D8/CC-T3)"
+      "a docs-grade map allows empty commands (an overview ran none — D8/CC-T3)"
+    ).toBe(true);
+  });
+
+  // Dogfood finding (session 267624f0, 2026-06-18): the grounding subagent did §1-§5,
+  // streamed the beat-2 correction, and STOPPED — it never persisted or finalized, so
+  // the cache never seeded. The fix makes §6 a non-skippable terminal step. Lock it.
+  it("§6 is a MANDATORY terminal step, not droppable after the correction is streamed", () => {
+    expect(
+      /not the end of your job/i.test(briefText) || /mandatory and it is where every run ends/i.test(briefText),
+      "subagent-brief.md must state that streaming the correction is NOT the end — §6 still runs"
+    ).toBe(true);
+    expect(
+      /unfinished run/i.test(briefText),
+      "the brief must name the failure: a streamed correction with no persist/finalize is an UNFINISHED run (the cache never seeds)"
     ).toBe(true);
   });
 
