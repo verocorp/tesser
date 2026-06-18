@@ -132,7 +132,7 @@ clauses:
 
   - id: readme-first
     delta: true # value-over-baseline delta — closes the empty-beat-1 / slow-overview gap
-    source: ["D47 (2026-06-15 eng-review)", "scoreboard faster", "session b40f75e1"]
+    source: ["D47 (2026-06-15 eng-review)", "scoreboard faster", "session b40f75e1", "D3 (claim-cache, CC-T4)"]
     # When the model does not recognize the dependency (tesser's founding case),
     # "answer from memory" has nothing to draw on, so beat 1 degenerated to a
     # holding line ("I don't know this, reading now") and the developer waited
@@ -159,7 +159,12 @@ clauses:
       fetch is machinery noise. Deepening to the source (scripts/fetch source)
       and any build are background work, never narrated; the deterministic
       fetch is the licensed acquisition, and the agent runs no other machinery
-      in the foreground.
+      in the foreground. The foreground docs fetch is ephemeral (the developer's
+      beat-1 answer), but the BACKGROUND grounding of that overview persists a
+      docs-grade digest (D3, reversing D47's "overview persists nothing") so the
+      next ask for the dep serves from cache — the persist is the background
+      actor's, never the foreground's, and goes through validate-digest like any
+      other (commands empty at docs grade, citations to the lines read).
 
   - id: self-update
     delta: false

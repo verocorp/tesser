@@ -554,3 +554,33 @@ describe("stub-marker consistency", () => {
     }
   });
 });
+
+// Gate 9 — overview-persist (D3 / CC-T4, reverses D47). The background now persists
+// an overview grounding as a docs-grade digest so the next ask for the dep serves
+// from cache (the claim-cache founding case). REGRESSION: the brief used to "skip
+// the map" at the ground depth; that assertion is flipped. This pins the brief's
+// persist INSTRUCTION; the docs-grade digest itself validating (empty commands +
+// README citation) is covered by the validator's D8 tests (CC-T3).
+describe("gate 9: overview-persist (D3/CC-T4, reverses D47)", () => {
+  it("the brief persists a docs-grade map at the ground (overview) depth", () => {
+    expect(
+      /persist a docs-grade map/i.test(briefText),
+      "subagent-brief.md must instruct the ground depth to persist a docs-grade map (D3)"
+    ).toBe(true);
+    expect(
+      /truth_grade[:\s]+docs/.test(briefText),
+      "the ground-depth map must be docs-grade (truth_grade: docs)"
+    ).toBe(true);
+    expect(
+      /commands.{0,24}empty/i.test(briefText),
+      "the docs-grade map allows empty commands (an overview ran none — D8/CC-T3)"
+    ).toBe(true);
+  });
+
+  it("REGRESSION: the brief no longer 'skips the map' at the ground depth (D47 reversed)", () => {
+    expect(
+      /skip the map/i.test(briefText),
+      'subagent-brief.md must NOT say "skip the map" — D3 reverses D47; the overview now persists'
+    ).toBe(false);
+  });
+});

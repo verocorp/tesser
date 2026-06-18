@@ -41,7 +41,7 @@ Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hoste
 
 ## 5. Build, exercise, interpret — the run step (build/exercise depth only)
 
-At the **ground** depth you stop after reading the source: stream back only what changes the main thread's answer (a correction, a sharper hedge, a moved repo — or nothing), then finalize the log (§6). Do not build. The rest of this section is the **build/exercise** depth.
+At the **ground** depth you stop after reading the source: stream back only what changes the main thread's answer (a correction, a sharper hedge, a moved repo — or nothing), then **persist a docs-grade map and finalize the log (§6)** so the next ask for this dep serves from cache. Do not build. The rest of this section is the **build/exercise** depth.
 
 This is your substance. Build with whatever the repo declares — `cargo build --release`, `go build ./...`, `npm ci`, `make`, `pip install -e .` — tesser is process-general; tee output to `~/.tesser/builds/<host>/<org-path>/<repo>@<sha12>/build.log` and write `state: building`. On exit 0, verify **by use** (the ladder in SKILL.md), then write `state: built`; on nonzero, write `state: failed` and keep `failing_command`/`exit_code`.
 
@@ -49,7 +49,7 @@ Then **interpret honestly** — the calibration the developer actually wants. Ex
 
 ## 6. Persist the map, finalize the log — silently (contract:invocation-log)
 
-Bookkeeping the developer never sees; narrate none of it. At the **ground** depth, skip the map (no build artifact to record this turn) and go straight to finalizing the log with `--outcome completed --sha <pin>`. At the **build/exercise** depth, after a run that produced citable knowledge, write a map — one markdown file, YAML frontmatter (repo, sha, env, commands + exit codes, ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md`, then validate:
+Bookkeeping the developer never sees; narrate none of it. **Persist a map at either depth** (D3) — they differ only by grade, and a persisted overview makes the next ask for this dep instant. At the **ground** depth, write a **docs-grade** map: `truth_grade: docs`, `commands` empty (an overview ran none — allowed at docs grade), cited claims pointing at the README/docs/source lines you read at the pin. At the **build/exercise** depth, after a run that produced citable knowledge, write a **run/inspect-grade** map whose frontmatter also lists the `commands` + exit codes. Either way: one markdown file, YAML frontmatter (repo, sha, env, [commands + exit codes], ts, dependency_kind, truth_grade; spec in `digest-schema.yaml`), body = grounded overview and cited claims (bare citations are fine inside it). Stage it at `builds/<host>/<org-path>/<repo>@<sha12>/digest/<host>/<org-path>/<repo>@<sha12>.md`, then validate:
 
 ```
 scripts/validate-digest <staged.md> --clone <clone-dir>
