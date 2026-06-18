@@ -65,6 +65,8 @@ interface DigestOpts {
   body?: string;
   omit?: string[]; // frontmatter fields to drop
   relPath?: string; // digest path under the case dir (D31 layout)
+  truthGrade?: string; // override truth_grade (default enum[0] = run)
+  commands?: unknown[]; // override commands (e.g. [] for a docs-grade overview, D8)
 }
 
 // Write a digest built from a good template into a fresh temp subdir and
@@ -76,11 +78,11 @@ function writeDigest(opts: DigestOpts = {}): string {
     repo: opts.repo ?? "https://github.com/acme/widget.git",
     sha,
     env: { os: "darwin", arch: "arm64" },
-    commands: [{ cmd: "make test", exit_code: 0 }],
+    commands: opts.commands ?? [{ cmd: "make test", exit_code: 0 }],
     ts: "2026-06-10T18:04:00Z",
     // enum values come from the schema, not hardcoded copies
     dependency_kind: required.dependency_kind.enum[1],
-    truth_grade: required.truth_grade.enum[0],
+    truth_grade: opts.truthGrade ?? required.truth_grade.enum[0],
   };
   for (const field of opts.omit ?? []) delete fm[field];
   const body =
@@ -742,5 +744,91 @@ describe("gate 8: digest path rule (D27/D31)", () => {
     });
     const { status, stderr } = runValidator(digest);
     expect(status, stderr).toBe(0);
+  });
+});
+
+// D8 (claim-cache): an overview persists at docs grade with NO commands, and a
+// claim fused/persisted from training is tagged ⟦recall⟧ (no path/sha, exempt from
+// quote-in-range). These unblock CC-T4 (overview-persist) and CC-T2 (consult).
+describe("D8: docs-grade commands-optional + recall provenance (claim-cache)", () => {
+  let cloneDir: string;
+  let cloneSha: string;
+
+  beforeAll(() => {
+    cloneDir = path.join(tmpRoot, "d8org", "d8repo");
+    fs.mkdirSync(cloneDir, { recursive: true });
+    const git = (...a: string[]) =>
+      execFileSync("git", a, { cwd: cloneDir, encoding: "utf8" });
+    git("init", "--quiet");
+    git("config", "user.email", "fixtures@tesser.invalid");
+    git("config", "user.name", "tesser fixtures");
+    const readme = Array.from({ length: 8 }, (_, i) => `readme line ${i + 1}`).join("\n");
+    fs.writeFileSync(path.join(cloneDir, "README.md"), readme + "\n");
+    git("add", "README.md");
+    git("commit", "--quiet", "-m", "init");
+    git("remote", "add", "origin", `file://${cloneDir}`);
+    cloneSha = git("rev-parse", "HEAD").trim();
+  });
+
+  function d8Digest(opts: Partial<DigestOpts>): string {
+    return writeDigest({
+      repo: `file://${cloneDir}`,
+      sha: cloneSha,
+      relPath: `file/d8org/d8repo@${cloneSha.slice(0, 12)}.md`,
+      ...opts,
+    });
+  }
+
+  it("a docs-grade overview may have EMPTY commands (it ran none); README citation holds", () => {
+    const digest = d8Digest({
+      truthGrade: "docs",
+      commands: [],
+      body: "\nOverview, going by its README ⟦README.md:L1-L3⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, cloneDir);
+    expect(status, stderr).toBe(0);
+  });
+
+  it("below docs grade, empty commands is still INVALID (an inspect/run claim must show its work)", () => {
+    const digest = d8Digest({
+      truthGrade: "run",
+      commands: [],
+      body: "\nA run claim ⟦README.md:L1-L2⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/at least 1 item/);
+  });
+
+  it("⟦recall⟧ is a valid token, exempt from quote-in-range (no path/sha to check)", () => {
+    const digest = d8Digest({
+      truthGrade: "docs",
+      commands: [],
+      body: "\nFrom training, not yet verified against source ⟦recall⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, cloneDir);
+    expect(status, stderr).toBe(0);
+    expect(stderr).not.toMatch(/is not a file|quote-in-range/);
+  });
+
+  it("a recall claim mixed with a real README citation validates against the clone", () => {
+    const digest = d8Digest({
+      truthGrade: "docs",
+      commands: [],
+      body: "\nRecalled ⟦recall⟧; and the README says ⟦README.md:L2-L4⟧.\n",
+    });
+    const { status, stderr } = runValidator(digest, cloneDir);
+    expect(status, stderr).toBe(0);
+  });
+
+  it("⟦recall⟧ takes no sha suffix — ⟦recall⟧@<hex> is a malformed token (token-totality)", () => {
+    const digest = d8Digest({
+      truthGrade: "docs",
+      commands: [],
+      body: `\nMislabeled ⟦recall⟧@${cloneSha.slice(0, 12)}.\n`,
+    });
+    const { status, stderr } = runValidator(digest);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/malformed token/);
   });
 });

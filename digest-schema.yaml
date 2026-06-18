@@ -55,6 +55,11 @@ frontmatter:
     commands:
       type: list # every command run, in execution order
       min_items: 1
+      # D8 (claim-cache): an overview persisted at docs grade ran no commands, so
+      # commands may be empty THEN — citations are still required (they point at
+      # README/docs lines). Below docs grade the floor stays 1: an inspect/run claim
+      # must show the work that produced it. Declarative so the rule lives in the spec.
+      min_items_relaxed_when: { field: truth_grade, equals: docs, min_items: 0 }
       item:
         cmd: { type: string }
         exit_code: { type: integer }
@@ -88,6 +93,13 @@ body:
     version: "1.1"
     full: "⟦path:Lstart-Lend⟧@<sha12>"
     in_digest: "⟦path:Lstart-Lend⟧" # suffix optional; if present, == frontmatter sha12
+    # D8 (claim-cache): the recall/training provenance marker. A claim fused or
+    # persisted from model training (not source-grounded) is tagged ⟦recall⟧ so it
+    # is honestly labeled and never laundered as source-grounded. It carries no path
+    # and no sha (there is no commit), so it is exempt from quote-in-range. It reuses
+    # the reserved ⟦⟧ delimiter so token-totality still holds (every ⟦ begins a token
+    # that fully matches token_pattern; learning: reserved-delimiter-validation-totality).
+    recall: "⟦recall⟧"
     # Anchored (D24): a malformed suffix — wrong length (8-hex, 17-hex) or an
     # alphanumeric continuation — invalidates the WHOLE token instead of
     # partially matching as a bare citation. Line numbers are 1-based with no
@@ -95,7 +107,10 @@ body:
     # Path charset (D37, strictness-only v1.1 amendment): the path part also
     # excludes ⟦ and newlines, so a stray ⟦ can never merge into the next
     # citation's path and pass structural validation as one token.
-    token_pattern: "⟦[^⟧⟦:\\n\\r]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@)"
+    # Two alternatives: the recall provenance marker (⟦recall⟧, no path/sha/suffix),
+    # or a file citation. The recall branch forbids a trailing @ so ⟦recall⟧@<hex> is
+    # rejected as malformed, not silently split (recall takes no commit).
+    token_pattern: "(?:⟦recall⟧(?!@)|⟦[^⟧⟦:\\n\\r]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@))"
     range_rule: "1 <= Lstart <= Lend; a reversed range (e.g. L90-L10) is invalid"
     path_rule: "cited paths are normal repo-relative paths: no leading /, no
       '..' or '.' segments, no empty segments (D37)"
@@ -119,3 +134,7 @@ body:
       failures at the grammar stage, before any git resolution (D37)"
     - claims below the digest's truth_grade are individually labeled with
       their own grade
+    - "recall-provenance (D8): ⟦recall⟧ is a valid citation token marking a
+      training/recall-sourced claim; it has no path or sha and is exempt from
+      quote-in-range. A recall claim is grade-labeled recall, never served as
+      source-grounded (the no-laundering rule)."

@@ -187,7 +187,7 @@ def check_frontmatter(fm, schema, failures):
             failures.append(f"frontmatter: required field '{field}' is missing")
             continue
         value = fm[field]
-        check_field(field, value, spec, failures)
+        check_field(field, value, effective_spec(spec, fm), failures)
 
     optional = schema["frontmatter"].get("optional", {})
     for field, spec in optional.items():
@@ -195,6 +195,19 @@ def check_frontmatter(fm, schema, failures):
             check_field(field, fm[field], spec, failures)
 
     return fm
+
+
+def effective_spec(spec, fm):
+    """Apply a declarative `min_items_relaxed_when` from the schema (D8): when
+    another frontmatter field equals a given value, override min_items. Returns the
+    spec unchanged when the condition is absent or unmet, so the strict floor is the
+    default (a missing/invalid truth_grade keeps commands >= 1)."""
+    cond = spec.get("min_items_relaxed_when")
+    if cond and fm.get(cond.get("field")) == cond.get("equals"):
+        relaxed = dict(spec)
+        relaxed["min_items"] = cond.get("min_items", 0)
+        return relaxed
+    return spec
 
 
 def check_field(field, value, spec, failures):
@@ -357,6 +370,7 @@ def check_citations(body, fm, schema, failures):
     as (path, lstart, lend) tuples for quote-in-range."""
     grammar = schema["body"]["citation_grammar"]
     token_re = re.compile(grammar["token_pattern"])
+    recall_token = grammar.get("recall")  # D8: ⟦recall⟧, exempt from quote-in-range
     sha = fm.get("sha")
     fm_sha12 = sha[:SHA12_LEN] if isinstance(sha, str) else None
 
@@ -380,6 +394,11 @@ def check_citations(body, fm, schema, failures):
             continue
 
         token = m.group(0)
+        # D8: the recall provenance marker is a valid token but not a file citation —
+        # no path/line/sha, so nothing to extract and nothing to quote-in-range.
+        if recall_token is not None and token == recall_token:
+            idx = m.end()
+            continue
         ext = CITATION_EXTRACT.match(token)
         # token_pattern is a strict subset of the extraction regex, so this
         # always matches; guard anyway.
