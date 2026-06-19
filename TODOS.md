@@ -103,3 +103,13 @@ Deferred work with context. Items land here only via a review decision; each car
 - **Cons:** Genuinely hard (claim-granularity validity is unsolved); build-ahead of demand; entangled with the deferred granular-claim-store question.
 - **Context:** Surfaced in the 2026-06-18 /plan-eng-review on `docs/claim-cache-design.md`. v1 ships with async-drift as the only expiry mechanism and that is accepted. Pairs with the granular-claim-store and cross-commit-citations TODOs.
 - **Depends on / blocked by:** Not now (maintainer deferred). Natural to take up alongside the granular-claim-store decision once retrieval evals justify finer claims.
+
+## Bare-name alias collision: silent last-writer-wins over-serve (claim-cache, 2026-06-19)
+
+- **What:** The name→identity index (`scripts/fetch` `index_record`, `idx["aliases"][al] = identity` at line ~259) maps each alias to an identity **last-writer-wins, silently**. When two deps share a basename — `github.com/orgA/widget` then `github.com/orgB/widget`, or across hosts `github.com/foo/redis` vs `gitlab.com/bar/redis` — the bare-basename alias (`widget`/`redis`) resolves to whichever was recorded LAST. A later bare-name `fetch consult widget` then serves the WRONG identity's cached digest: a silent cross-identity over-serve. The full URL and the `org/repo` alias still disambiguate correctly; only the bare basename collides.
+- **Why:** Beat-1 serves cached claims straight to the developer. A bare-name re-ask ("remind me about widget") that resolves to the wrong same-named dep feeds a confident, wrong answer about a different library. Same-name-different-ecosystem is a named adversarial case (claim-cache design, Codex #9).
+- **Pros (of fixing):** Closes a silent wrong-answer path; cheap to detect (an alias already mapped to a different identity ⇒ ambiguous).
+- **Cons:** Forcing disambiguation on every bare-name collision adds friction; rare in one dev's cache; the URL and org/repo paths already resolve correctly.
+- **Decision (Chris, 2026-06-19):** keep **last-writer-wins for now** for the trusted alpha — do NOT change behavior. Pinned by `tests/cache-applicability.test.ts` (cases B/C) so it can't regress silently and stays visible as accepted behavior.
+- **Fix when addressed:** `index_resolve`'s bare-name path returns `ambiguous` (listing candidate identities) when ≥2 identities claim a basename; `consult`/the agent then disambiguates (ask, or use the URL). Needs the index to record ALL identities per alias, not just the last — a small schema change + a contract note.
+- **Depends on / blocked by:** Not now (Chris deferred). Revisit when the cache spans many deps or the audience widens past trusted devs.
