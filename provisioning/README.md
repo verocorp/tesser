@@ -19,6 +19,31 @@ changes to this template:
   result.md         # the finding
 ```
 
+## What you provide (nothing dev-specific is baked in)
+
+This module contains zero environment-specific data. Every value that's *yours* — GCP
+project, the IP allowed to SSH, your SSH public key — is a required input with no
+default. The generic substrate everyone shares (region, machine type, the amd64 Ubuntu
+image, the pinned cloud-init versions) ships as defaults. The rule: a dev-specific
+coordinate is a required input or derived from your environment; only universal
+substrate gets a baked-in default.
+
+Two ways to supply your values:
+
+- **`./preflight.sh`** — derives them from your environment (`gcloud` project, your
+  public IP, your default `~/.ssh` key) and writes `terraform/terraform.tfvars`.
+- **Manual** — `cp terraform/terraform.tfvars.example terraform/terraform.tfvars` and
+  fill in.
+
+| You provide | How to get it | Gotcha |
+|---|---|---|
+| `project_id` | `gcloud config get-value project` | needs ADC: `gcloud auth application-default login` |
+| `ssh_pubkey_path` | path to your `~/.ssh/*.pub` | ABSOLUTE path — `file()` doesn't expand `~` |
+| `allowed_ssh_cidr` | `curl -s https://api.ipify.org` | lock to `/32` |
+
+`terraform.tfvars` and `terraform.tfstate` are gitignored, so your values never ship.
+A dev recreating a vendored bundle supplies their own the same way.
+
 ## Provision-only boundary (honored — do not cross)
 
 Following the `restate-test` convention ("What Terraform Does NOT Manage"):
@@ -28,6 +53,9 @@ Following the `restate-test` convention ("What Terraform Does NOT Manage"):
 - **It does NOT do app config or the repro.** No `remote-exec`/`local-exec` build steps.
   The actual clone/build/run of the issue lives in the bundle's `repro.sh`, run over SSH —
   the equivalent of restate-test's `deploy-*.sh` layer.
+- **`repro.sh` must be self-contained.** It fetches the target from upstream at the pinned
+  commit and runs it; it references no local-machine artifacts or paths. A different dev
+  runs it with nothing but the bundle.
 
 ## State
 

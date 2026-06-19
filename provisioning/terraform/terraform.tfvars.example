@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and fill in YOUR values, or run ../preflight.sh to derive
+# them from your own environment. terraform.tfvars is gitignored (local only).
+#
+# Nothing dev-specific is baked into this module. You provide the three values below;
+# everything else has a generic default in variables.tf (region, machine type, the
+# amd64 Ubuntu image, disk). Those are the shared substrate, not yours.
+
+project_id       = "your-gcp-project-id"                    # gcloud config get-value project
+ssh_pubkey_path  = "/absolute/path/to/your/id_ed25519.pub"  # ABSOLUTE path — file() does not expand ~
+allowed_ssh_cidr = "YOUR.PUBLIC.IP/32"                      # curl -s https://api.ipify.org ; lock to /32
+cloud_init_path  = "../cloud-init/base.yaml"                # the module's base cloud-init (docker + git)
+
+# Optional overrides (sane defaults in variables.tf):
+# instance_name = "tesser-repro"
+# region        = "us-central1"
+# zone          = "us-central1-a"
+# machine_type  = "n2-standard-4"   # amd64; never t2a-* (arm)
+# image         = "ubuntu-os-cloud/ubuntu-2204-lts"
