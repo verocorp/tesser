@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """validate-digest — deterministic digest validator (T8).
 
-Usage: validate-digest <digest.md> [--clone <path-to-clone>]
+Usage: validate-digest <digest.md> [--clone <path-to-clone>] [--persist]
 
 Validates a tesser digest against digest-schema.yaml (the canonical spec,
 read as DATA at runtime from the repo root relative to this script — the
 patterns and enums live there, not here).
+
+With --persist (CC-T7): on a clean validation, atomically move the staged digest
+to its correct location under <state-root>/digests/, computed from the frontmatter
+identity + sha (NOT from where it was staged), first-writer-wins, and print
+{"persisted","digest_sha256","status"} on stdout. The agent never constructs a
+digests/ path or hashes the file itself. The staged-path identity check (rule 3)
+is skipped under --persist since the staged location is temporary.
 
 Checks, in order:
   1. File parses: UTF-8, YAML frontmatter delimited by --- lines + markdown
@@ -32,6 +39,8 @@ Persist rule (D34): 0 persist, 1 discard, 4 keep the digest and retry —
 an environment failure says nothing about the digest itself.
 """
 
+import hashlib
+import json
 import os
 import re
 import subprocess
@@ -615,12 +624,40 @@ def check_clone_identity(fm, clone, failures, env_failures):
         )
 
 
-USAGE = "usage: validate-digest <digest.md> [--clone <path-to-clone>]\n"
+USAGE = "usage: validate-digest <digest.md> [--clone <path-to-clone>] [--persist]\n"
+
+
+def persist_digest(digest_path, fm):
+    """CC-T7: move a VALIDATED staged digest to its correct, computed location
+    under <state-root>/digests/, atomically and first-writer-wins. The target path
+    is derived from the frontmatter identity + sha — NOT from where the agent staged
+    the file — so the agent never constructs a digests/ path (the river/cobra move
+    bug). Returns (target, digest_sha256, status). 'status' is 'persisted' (we moved
+    it) or 'already-present' (a concurrent/earlier run won; left untouched)."""
+    host, segments = normalize_identity(fm["repo"])  # fm already validated as clean
+    sha12 = str(fm["sha"])[:SHA12_LEN]
+    target = os.path.join(
+        _state_root(), "digests", host, *segments[:-1], f"{segments[-1]}@{sha12}.md"
+    )
+    if os.path.exists(target):
+        # First-writer-wins (Codex #11): same identity@sha is equivalent content,
+        # so a present target is the authoritative copy — never clobber it.
+        status = "already-present"
+    else:
+        os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+        # os.replace is an atomic rename within the same filesystem (staged builds/
+        # and digests/ both live under the state root) — the "atomic stage->rename".
+        os.replace(digest_path, target)
+        status = "persisted"
+    with open(target, "rb") as fh:
+        digest_sha256 = hashlib.sha256(fh.read()).hexdigest()
+    return target, digest_sha256, status
 
 
 def main(argv):
     args = argv[1:]
     clone = None
+    persist = False
     positional = []
     i = 0
     while i < len(args):
@@ -630,6 +667,9 @@ def main(argv):
                 return 2
             clone = args[i + 1]
             i += 2
+        elif args[i] == "--persist":
+            persist = True
+            i += 1
         elif args[i].startswith("-"):
             sys.stderr.write(f"validate-digest: unknown option {args[i]!r}\n")
             sys.stderr.write(USAGE)
@@ -697,8 +737,12 @@ def main(argv):
     # 2. Frontmatter fields
     fm = check_frontmatter(fm, schema, failures)
 
-    # 3. Digest path rule
-    check_digest_path(digest_path, fm, failures)
+    # 3. Digest path rule — validates that an IN-PLACE digest sits at its identity
+    # path. Skipped under --persist: there the staged location is temporary and the
+    # script computes the correct target by construction, so checking the staged
+    # path would just re-impose the error-prone hand-built-path step (CC-T7).
+    if not persist:
+        check_digest_path(digest_path, fm, failures)
 
     # 4. Citation grammar v1.1
     citations = check_citations(body, fm, schema, failures)
@@ -721,6 +765,21 @@ def main(argv):
         return 1
     if env_failures:
         return 4
+    # Validation passed. Under --persist, the script owns the move to digests/
+    # (CC-T7): it computes the correct path and atomically renames, so the agent
+    # never constructs a digests/ path and gets digest_sha256 for free (no manual
+    # hashing). A move failure is an environment problem, not a bad digest (D34).
+    if persist:
+        try:
+            target, digest_sha256, status = persist_digest(digest_path, fm)
+        except (ValueError, OSError) as e:
+            sys.stderr.write(f"ENVIRONMENT: persist failed: {e}\n")
+            return 4
+        sys.stdout.write(json.dumps({
+            "persisted": target,
+            "digest_sha256": digest_sha256,
+            "status": status,
+        }, ensure_ascii=False) + "\n")
     return 0
 
 

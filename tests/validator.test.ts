@@ -832,3 +832,98 @@ describe("D8: docs-grade commands-optional + recall provenance (claim-cache)", (
     expect(stderr).toMatch(/malformed token/);
   });
 });
+
+// CC-T7 — `--persist`: validate-digest owns the atomic move to digests/, computing
+// the target from the frontmatter identity+sha (NOT the staged location). Fixes the
+// river/cobra dogfood bug where agents hand-built the digests/ path inconsistently.
+describe("CC-T7: validate-digest --persist (deterministic atomic move)", () => {
+  let cloneDir: string;
+  let cloneSha: string;
+
+  beforeAll(() => {
+    cloneDir = path.join(tmpRoot, "t7org", "t7repo");
+    fs.mkdirSync(cloneDir, { recursive: true });
+    const git = (...a: string[]) =>
+      execFileSync("git", a, { cwd: cloneDir, encoding: "utf8" });
+    git("init", "--quiet");
+    git("config", "user.email", "f@t.invalid");
+    git("config", "user.name", "f");
+    fs.writeFileSync(path.join(cloneDir, "README.md"),
+      Array.from({ length: 6 }, (_, i) => `readme ${i + 1}`).join("\n") + "\n");
+    git("add", "README.md");
+    git("commit", "--quiet", "-m", "init");
+    git("remote", "add", "origin", `file://${cloneDir}`);
+    cloneSha = git("rev-parse", "HEAD").trim();
+  });
+
+  // Write a digest to an ARBITRARY staged path (the point: location is irrelevant).
+  function stage(rel: string, body: string, grade = "docs", commands: unknown[] = []): string {
+    const fm = {
+      repo: `file://${cloneDir}`,
+      sha: cloneSha,
+      env: { os: "darwin", arch: "arm64" },
+      commands,
+      ts: "2026-06-10T18:04:00Z",
+      dependency_kind: required.dependency_kind.enum[1],
+      truth_grade: grade,
+    };
+    const p = path.join(tmpRoot, `t7-${caseCounter++}`, rel);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, `---\n${yaml.dump(fm)}---\n${body}`);
+    return p;
+  }
+  function persistRun(staged: string) {
+    const res = spawnSync(validator, [staged, "--clone", cloneDir, "--persist"], {
+      encoding: "utf8",
+      env: { ...process.env, TESSER_HOME: hermeticHome },
+    });
+    let json: any = null;
+    try { json = JSON.parse(res.stdout); } catch { /* */ }
+    return { status: res.status, json, stdout: res.stdout, stderr: res.stderr };
+  }
+  const target = () =>
+    path.join(hermeticHome, "digests", "file", "t7org", `t7repo@${cloneSha.slice(0, 12)}.md`);
+
+  it("moves a validated digest to the COMPUTED path regardless of where it was staged", () => {
+    const staged = stage(path.join("junk", "deep", "whatever-name.md"),
+      "Overview, going by its README ⟦README.md:L1-L2⟧.");
+    const r = persistRun(staged);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.json.status).toBe("persisted");
+    expect(r.json.persisted).toBe(target());
+    expect(fs.existsSync(target())).toBe(true);
+    expect(r.json.digest_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(fs.existsSync(staged)).toBe(false); // staged file consumed by the move
+  });
+
+  it("first-writer-wins: a present target is not clobbered (Codex #11)", () => {
+    fs.rmSync(target(), { force: true });
+    const first = persistRun(stage("a/one.md", "First ⟦README.md:L1-L2⟧."));
+    expect(first.json.status).toBe("persisted");
+    const firstBytes = fs.readFileSync(target(), "utf8");
+    const second = persistRun(stage("b/two.md", "Second DIFFERENT ⟦README.md:L3-L4⟧."));
+    expect(second.status).toBe(0);
+    expect(second.json.status).toBe("already-present");
+    expect(fs.readFileSync(target(), "utf8")).toBe(firstBytes); // original kept
+  });
+
+  it("does NOT persist an INVALID digest (out-of-range citation) — exit 1, no move", () => {
+    fs.rmSync(target(), { force: true });
+    const staged = stage("c/bad.md", "Out of range ⟦README.md:L1-L999⟧.");
+    const r = persistRun(staged);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toMatch(/quote-in-range/);
+    expect(fs.existsSync(target())).toBe(false); // nothing persisted
+    expect(fs.existsSync(staged)).toBe(true); // staged file left for the agent to fix
+  });
+
+  it("an inspect-grade digest (read source, read commands listed) persists too", () => {
+    fs.rmSync(target(), { force: true });
+    const staged = stage("d/inspect.md",
+      "Read the README ⟦README.md:L2-L4⟧.", "inspect",
+      [{ cmd: "grep -n foo README.md", exit_code: 0 }]);
+    const r = persistRun(staged);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.json.status).toBe("persisted");
+  });
+});
