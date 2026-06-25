@@ -77,10 +77,13 @@ fields:
     # enforces sha presence for completed (exit 2, nothing appended). A
     # completed-unverified answer can legitimately have no sha (e.g. a
     # docs-grade answer after a failed clone) — there, presence means a pin
-    # happened.
-    presence: required when outcome is completed (logger-enforced); optional
-      when outcome is completed-unverified, where presence means a pin
-      happened; optional otherwise (clone may never have happened)
+    # happened. D50 exemption: a PROVIDER-ANCHORED finalize (--provider given)
+    # has no commit to pin, so the sha-required gate does not apply to it.
+    presence: required when outcome is completed (logger-enforced) for a
+      repo-anchored run; not applicable to a provider-anchored run (D50, which
+      has no commit to pin); optional when outcome is completed-unverified,
+      where presence means a pin happened; optional otherwise (clone may never
+      have happened)
   dependency_kind:
     type: string
     enum: [clonable-cli, clonable-library, sdk-of-hosted-service, hosted-closed, heavy-infra]
@@ -132,3 +135,19 @@ fields:
     presence: required together with consulted_cached_digest (a served digest
       logs its hash — logger-enforced); also logged alone when a digest was
       persisted without a cached serve; absent otherwise
+  provider:
+    type: string
+    # D50: the provider identity <vendor>/<service> of a provider-anchored
+    # (hosted-closed) run — the log's stand-in for `repo` when there is no clone
+    # URL. Mutually exclusive with repo on a single finalize; its presence is
+    # what makes the run provider-anchored and exempts it from the sha gate.
+    pattern: "^[a-z0-9][a-z0-9.-]*(/[a-z0-9][a-z0-9._-]*)+$"
+    events: [finalized]
+    presence: required for a provider-anchored finalize; absent for repo-anchored
+  credentialed:
+    type: boolean
+    # D49: passive marker that this run used developer-supplied credentials under
+    # the explicit opt-in. Demand data only — currently-unservable-by-default
+    # moments become countable. Never gates anything.
+    events: [finalized]
+    presence: optional; logged true on a credentialed opt-in run, absent otherwise

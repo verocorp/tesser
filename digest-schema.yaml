@@ -37,6 +37,15 @@ file:
 identity:
   key: host + full namespace path (org-path segments + repo)
   digest_path: "<host>/<org-path>/<repo>@<sha12>.md"
+  # D50 (provider-anchored, hosted-closed kind): a run whose verified target is a
+  # hosted closed service has no clone URL and no commit, so it cannot key on a
+  # repo identity. It keys on a PROVIDER identity instead — the literal host
+  # segment `provider`, then <vendor>/<service> (lowercased, same normalization;
+  # at least two segments). There is no sha to pin, so the digest-path
+  # discriminator is the observation date YYYYMMDD (derived from observed_at),
+  # not a sha12. A digest is EITHER repo-anchored OR provider-anchored, never both.
+  provider_key: provider + <vendor>/<service> # e.g. provider/clickhouse/cloud
+  provider_digest_path: "provider/<vendor>/<repo>@<observed>.md" # <observed> = YYYYMMDD of observed_at
 
 frontmatter:
   required:
@@ -78,9 +87,40 @@ frontmatter:
       # D26: required — a digest whose grade is unstated defeats the labeling
       # contract (cited-claims clause); validator rejects when missing
 
+  # D50: the provider-anchored branch. The `required` block above is the
+  # repo-anchored default (repo + sha). A digest is provider-anchored when
+  # `provider` OR `observed_at` is present; the validator then REPLACES the
+  # repo/sha requirement with provider/observed_at, forbids repo/sha, and
+  # (D52) requires scope: personal + reproducible: false. The always-required
+  # fields (env, commands, ts, dependency_kind, truth_grade) still apply.
+  # A run-grade provider digest must carry >=1 ⟦observed⟧ claim (D51).
+  provider_anchor:
+    detect_when: provider present OR observed_at present
+    requires: [provider, observed_at]
+    forbids: [repo, sha]
+    enforces: { scope: personal, reproducible: false } # D52
+    run_grade_requires_observed: true # D51 — >=1 ⟦observed⟧ when truth_grade is run
+    fields:
+      provider:
+        type: string
+        # <vendor>/<service>, lowercased; >=2 segments; no leading/trailing slash
+        pattern: "^[a-z0-9][a-z0-9.-]*(/[a-z0-9][a-z0-9._-]*)+$"
+      observed_at:
+        type: string
+        format: iso8601-utc # when the live service was observed (no commit to pin)
+
   optional:
     question:
       type: string # the developer question that triggered the run, if any
+    # D52: personal / not-reproducible scope. A provider-anchored or credentialed
+    # run sets these; a repo digest defaults to reproducible (absent => true) and
+    # scope shareable (absent => shareable). A personal-scope digest persists to
+    # ~/.tesser/digests/ only and NEVER enters the bundled digests/ set.
+    reproducible:
+      type: boolean # false for provider/credentialed runs; absent defaults true
+    scope:
+      type: string
+      enum: [shareable, personal] # absent defaults shareable
 
 body:
   # D18 citation grammar, revised to v1.1 by D24. sha12 is THE canonical
@@ -100,6 +140,15 @@ body:
     # the reserved ⟦⟧ delimiter so token-totality still holds (every ⟦ begins a token
     # that fully matches token_pattern; learning: reserved-delimiter-validation-totality).
     recall: "⟦recall⟧"
+    # D51 (provider-anchored): the run-observation provenance marker. A fact
+    # established by OPERATING a live service (run-grade empirical) is tagged
+    # ⟦observed⟧ — not source-grounded (no repo line governs it) and not recall
+    # (not training). Like recall it carries no path and no sha (there is no
+    # commit), is exempt from quote-in-range, reuses the reserved ⟦⟧ delimiter
+    # (token-totality holds), and forbids a trailing @ (⟦observed⟧@<hex> is
+    # malformed, never split). Bare in v1. Prevents the category error of citing
+    # a repo's source for a managed service's observed behavior.
+    observed: "⟦observed⟧"
     # Anchored (D24): a malformed suffix — wrong length (8-hex, 17-hex) or an
     # alphanumeric continuation — invalidates the WHOLE token instead of
     # partially matching as a bare citation. Line numbers are 1-based with no
@@ -110,7 +159,7 @@ body:
     # Two alternatives: the recall provenance marker (⟦recall⟧, no path/sha/suffix),
     # or a file citation. The recall branch forbids a trailing @ so ⟦recall⟧@<hex> is
     # rejected as malformed, not silently split (recall takes no commit).
-    token_pattern: "(?:⟦recall⟧(?!@)|⟦[^⟧⟦:\\n\\r]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@))"
+    token_pattern: "(?:⟦recall⟧(?!@)|⟦observed⟧(?!@)|⟦[^⟧⟦:\\n\\r]+:L[1-9][0-9]*-L[1-9][0-9]*⟧(?:@[0-9a-f]{12}(?![0-9a-zA-Z]))?(?!@))"
     range_rule: "1 <= Lstart <= Lend; a reversed range (e.g. L90-L10) is invalid"
     path_rule: "cited paths are normal repo-relative paths: no leading /, no
       '..' or '.' segments, no empty segments (D37)"
@@ -138,3 +187,9 @@ body:
       training/recall-sourced claim; it has no path or sha and is exempt from
       quote-in-range. A recall claim is grade-labeled recall, never served as
       source-grounded (the no-laundering rule)."
+    - "observed-provenance (D51): ⟦observed⟧ is a valid citation token marking a
+      fact established by operating a live service; it has no path or sha and is
+      exempt from quote-in-range. It is never served as source-grounded or recall
+      (the no-laundering rule). A provider-anchored digest at truth_grade run MUST
+      carry at least one ⟦observed⟧ claim — a run-grade label with no observation
+      is the overclaim the marker exists to prevent."

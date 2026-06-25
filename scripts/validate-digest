@@ -183,22 +183,107 @@ def normalize_identity(repo_url):
     return host.lower(), segments
 
 
+def anchor_kind(fm):
+    """D50: a digest is provider-anchored when `provider` OR `observed_at`
+    appears, else repo-anchored (the default). Determines which anchor pair is
+    required and which validator path (digest-path, persist) applies."""
+    if not isinstance(fm, dict):
+        return "repo"
+    if "provider" in fm or "observed_at" in fm:
+        return "provider"
+    return "repo"
+
+
+def provider_identity(fm):
+    """D50: ('provider', [vendor, ..., service]) from the provider field — the
+    literal host segment 'provider' plus the lowercased path segments. Raises
+    ValueError when no identity is derivable."""
+    provider = fm.get("provider")
+    if not isinstance(provider, str):
+        raise ValueError("provider field is missing or not a string")
+    parts = [p for p in provider.strip("/").split("/") if p]
+    if len(parts) < 2:
+        raise ValueError(
+            f"cannot derive a provider identity from {provider!r}: "
+            "need at least <vendor>/<service>"
+        )
+    return "provider", [p.lower() for p in parts]
+
+
+def observed_date(fm):
+    """D50: the YYYYMMDD digest-path discriminator, derived from observed_at
+    (there is no commit to pin). Accepts a PyYAML datetime or an ISO string.
+    Raises ValueError when observed_at is missing or unparseable."""
+    val = fm.get("observed_at")
+    if isinstance(val, datetime):
+        return val.strftime("%Y%m%d")
+    if isinstance(val, str):
+        try:
+            return datetime.fromisoformat(val.replace("Z", "+00:00")).strftime("%Y%m%d")
+        except ValueError:
+            raise ValueError(f"observed_at {val!r} is not a valid ISO-8601 timestamp")
+    raise ValueError("observed_at is missing or not a timestamp")
+
+
 def check_frontmatter(fm, schema, failures):
-    """Validate frontmatter against schema.frontmatter (data-driven).
-    Returns the dict (possibly empty) for downstream checks."""
+    """Validate frontmatter against schema.frontmatter (data-driven), branching
+    on the anchor kind (D50). The `required` block is the repo-anchored default
+    (repo + sha + the always-required fields); a provider-anchored digest
+    replaces repo/sha with provider/observed_at (from provider_anchor) and must
+    set scope: personal + reproducible: false (D52). Returns the dict for
+    downstream checks."""
     if not isinstance(fm, dict):
         failures.append("frontmatter: YAML frontmatter must be a mapping")
         return {}
 
-    required = schema["frontmatter"]["required"]
+    fmspec = schema["frontmatter"]
+    required = fmspec["required"]
+    panchor = fmspec.get("provider_anchor", {})
+    repo_anchor_fields = list(panchor.get("forbids", ["repo", "sha"]))
+    provider_anchor_fields = list(panchor.get("requires", ["provider", "observed_at"]))
+    kind = anchor_kind(fm)
+
     for field, spec in required.items():
+        # On a provider-anchored digest the repo anchor fields are forbidden,
+        # not missing — skip the missing-check here; presence is flagged below.
+        if kind == "provider" and field in repo_anchor_fields:
+            continue
         if field not in fm:
             failures.append(f"frontmatter: required field '{field}' is missing")
             continue
-        value = fm[field]
-        check_field(field, value, effective_spec(spec, fm), failures)
+        check_field(field, fm[field], effective_spec(spec, fm), failures)
 
-    optional = schema["frontmatter"].get("optional", {})
+    if kind == "provider":
+        for field in repo_anchor_fields:
+            if field in fm:
+                failures.append(
+                    f"frontmatter: '{field}' must be absent on a provider-anchored "
+                    f"digest — provider/observed_at replace repo/sha (D50)"
+                )
+        for field in provider_anchor_fields:
+            if field not in fm:
+                failures.append(
+                    f"frontmatter: provider-anchored digest is missing required "
+                    f"field '{field}' (D50)"
+                )
+                continue
+            check_field(field, fm[field], panchor.get("fields", {}).get(field, {}), failures)
+        enforces = panchor.get("enforces", {})
+        for field, want in enforces.items():
+            if fm.get(field) != want:
+                failures.append(
+                    f"frontmatter: a provider-anchored digest must set "
+                    f"{field}: {want!r} (D52), got {fm.get(field)!r}"
+                )
+    else:
+        for field in provider_anchor_fields:
+            if field in fm:
+                failures.append(
+                    f"frontmatter: '{field}' is only valid on a provider-anchored "
+                    f"digest (D50) — a repo-anchored digest uses repo/sha"
+                )
+
+    optional = fmspec.get("optional", {})
     for field, spec in optional.items():
         if field in fm:
             check_field(field, fm[field], spec, failures)
@@ -245,6 +330,13 @@ def check_field(field, value, spec, failures):
         if enum and value not in enum:
             failures.append(
                 f"frontmatter: '{field}' value {value!r} not in schema enum {enum}"
+            )
+    elif ftype == "boolean":
+        # D52: reproducible is a YAML bool. PyYAML parses true/false to bool;
+        # anything else (a string "false", an int) is invalid.
+        if not isinstance(value, bool):
+            failures.append(
+                f"frontmatter: '{field}' must be a boolean, got {type(value).__name__}"
             )
     elif ftype == "object":
         if not isinstance(value, dict):
@@ -326,11 +418,37 @@ def check_iso8601_utc(field, value, failures):
         )
 
 
+def check_provider_digest_path(digest_path, fm, failures):
+    """D50: a provider-anchored digest's path ends with
+    provider/<vendor>/<service>@<YYYYMMDD>.md, where the segments are the
+    provider identity and <YYYYMMDD> is the observation date of observed_at."""
+    try:
+        host, segments = provider_identity(fm)
+        observed = observed_date(fm)
+    except ValueError as e:
+        failures.append(f"digest-path: {e}")
+        return
+    expected_tail = [host] + segments[:-1] + [f"{segments[-1]}@{observed}.md"]
+    actual_parts = os.path.abspath(digest_path).split(os.sep)
+    if actual_parts[-len(expected_tail):] == expected_tail:
+        return
+    expected_rel = "/".join(expected_tail)
+    failures.append(
+        f"digest-path: provider-anchored digest must sit at a path ending "
+        f"'{expected_rel}' (provider/<vendor>/<service>@<YYYYMMDD>.md from the "
+        f"frontmatter provider + observed_at, D50)"
+    )
+
+
 def check_digest_path(digest_path, fm, failures):
     """Digest path rule (D27/D31): the digest's path ends with
     <host>/<org-path>/<repo>@<sha12>.md where sha12 == frontmatter sha[0:12]
     exactly and the segments are the normalized identity of the frontmatter
-    repo URL — a renamed OR re-homed digest is invalid."""
+    repo URL — a renamed OR re-homed digest is invalid. D50: a provider-anchored
+    digest takes the provider path rule instead."""
+    if anchor_kind(fm) == "provider":
+        check_provider_digest_path(digest_path, fm, failures)
+        return
     sha = fm.get("sha")
     repo_url = fm.get("repo")
     if not isinstance(sha, str) or not isinstance(repo_url, str):
@@ -380,6 +498,7 @@ def check_citations(body, fm, schema, failures):
     grammar = schema["body"]["citation_grammar"]
     token_re = re.compile(grammar["token_pattern"])
     recall_token = grammar.get("recall")  # D8: ⟦recall⟧, exempt from quote-in-range
+    observed_token = grammar.get("observed")  # D51: ⟦observed⟧, likewise exempt
     sha = fm.get("sha")
     fm_sha12 = sha[:SHA12_LEN] if isinstance(sha, str) else None
 
@@ -403,9 +522,13 @@ def check_citations(body, fm, schema, failures):
             continue
 
         token = m.group(0)
-        # D8: the recall provenance marker is a valid token but not a file citation —
-        # no path/line/sha, so nothing to extract and nothing to quote-in-range.
+        # D8/D51: the recall and observed provenance markers are valid tokens but
+        # not file citations — no path/line/sha, so nothing to extract and nothing
+        # to quote-in-range.
         if recall_token is not None and token == recall_token:
+            idx = m.end()
+            continue
+        if observed_token is not None and token == observed_token:
             idx = m.end()
             continue
         ext = CITATION_EXTRACT.match(token)
@@ -633,11 +756,17 @@ def persist_digest(digest_path, fm):
     is derived from the frontmatter identity + sha — NOT from where the agent staged
     the file — so the agent never constructs a digests/ path (the river/cobra move
     bug). Returns (target, digest_sha256, status). 'status' is 'persisted' (we moved
-    it) or 'already-present' (a concurrent/earlier run won; left untouched)."""
-    host, segments = normalize_identity(fm["repo"])  # fm already validated as clean
-    sha12 = str(fm["sha"])[:SHA12_LEN]
+    it) or 'already-present' (a concurrent/earlier run won; left untouched).
+    D50: a provider-anchored digest persists under provider/<vendor>/<service>
+    keyed by the observation date instead of repo identity + sha12."""
+    if anchor_kind(fm) == "provider":
+        host, segments = provider_identity(fm)  # fm already validated as clean
+        disc = observed_date(fm)
+    else:
+        host, segments = normalize_identity(fm["repo"])
+        disc = str(fm["sha"])[:SHA12_LEN]
     target = os.path.join(
-        _state_root(), "digests", host, *segments[:-1], f"{segments[-1]}@{sha12}.md"
+        _state_root(), "digests", host, *segments[:-1], f"{segments[-1]}@{disc}.md"
     )
     if os.path.exists(target):
         # First-writer-wins (Codex #11): same identity@sha is equivalent content,
@@ -747,8 +876,32 @@ def main(argv):
     # 4. Citation grammar v1.1
     citations = check_citations(body, fm, schema, failures)
 
-    # 5 + 6. Clone identity binding and quote-in-range (only with --clone)
-    if clone is not None:
+    # D51: a run-grade provider-anchored digest must carry >=1 ⟦observed⟧ claim —
+    # a run-grade label with no observation is the overclaim the marker guards.
+    panchor = schema["frontmatter"].get("provider_anchor", {})
+    if (
+        anchor_kind(fm) == "provider"
+        and panchor.get("run_grade_requires_observed")
+        and isinstance(fm, dict)
+        and fm.get("truth_grade") == "run"
+    ):
+        observed_token = schema["body"]["citation_grammar"].get("observed", "⟦observed⟧")
+        if observed_token not in body:
+            failures.append(
+                "citation: a run-grade provider-anchored digest must carry at "
+                "least one ⟦observed⟧ claim (D51) — a run-grade label with no "
+                "observation is an overclaim"
+            )
+
+    # 5 + 6. Clone identity binding and quote-in-range (only with --clone).
+    # D50: both are repo-specific (origin remote, sha:path), so they are
+    # inapplicable to a provider-anchored digest — skipped by kind, not by error.
+    if clone is not None and anchor_kind(fm) == "provider":
+        sys.stderr.write(
+            "validate-digest: NOTE: clone-identity and quote-in-range are "
+            "inapplicable to a provider-anchored digest (no repo/sha, D50)\n"
+        )
+    elif clone is not None:
         check_clone_identity(fm, clone, failures, env_failures)
         check_quote_in_range(citations, fm, clone, failures, env_failures)
     else:

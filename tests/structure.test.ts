@@ -469,6 +469,22 @@ describe("spec-integrity: contract.yaml", () => {
     const ids = contract.clauses.map((c) => c.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  it("provider-grounded clause (D49-D53) exists, is a playbook delta, and names ⟦observed⟧ + /tesser-finalize", () => {
+    const clause = contract.clauses.find((c) => c.id === "provider-grounded");
+    expect(clause, "contract.yaml must have a provider-grounded clause").toBeDefined();
+    expect(clause!.delta).toBe(true);
+    expect(clause!.surface).not.toBe("script"); // a playbook clause: gate 1 enforces its anchor
+    expect(clause!.statement).toMatch(/⟦observed⟧/);
+    expect(clause!.statement).toMatch(/\/tesser-finalize/);
+    expect(clause!.statement).toMatch(/provider-anchored/i);
+  });
+
+  it("always-verify keeps credentials-free as the default and names the D49 opt-in", () => {
+    const clause = contract.clauses.find((c) => c.id === "always-verify");
+    expect(clause!.statement).toMatch(/credentials-free by default/);
+    expect(clause!.statement).toMatch(/contract:provider-grounded/);
+  });
 });
 
 describe("spec-integrity: digest-schema.yaml", () => {
@@ -483,6 +499,37 @@ describe("spec-integrity: digest-schema.yaml", () => {
     const tokenRe = new RegExp(`^(?:${grammar.token_pattern})$`);
     expect(tokenRe.test("⟦a/b.go:L10-L42⟧@deadbeefcafe")).toBe(true); // 12-hex suffix
     expect(tokenRe.test("⟦a/b.go:L10-L42⟧@deadbeef")).toBe(false); // 8-hex suffix: not a full token
+  });
+
+  it("⟦observed⟧ is a token (D51): bare matches, trailing @ is malformed", () => {
+    const tokenRe = new RegExp(`^(?:${grammar.token_pattern})$`);
+    expect(grammar.observed).toBe("⟦observed⟧");
+    expect(tokenRe.test("⟦observed⟧")).toBe(true);
+    expect(tokenRe.test("⟦observed⟧@deadbeefcafe")).toBe(false); // no commit: trailing @ rejected
+    // observed-provenance rule documented alongside recall (no-laundering)
+    expect(digestSchema.body.rules.some((r: string) => /observed-provenance \(D51\)/.test(r))).toBe(true);
+  });
+
+  it("provider_anchor branch (D50/D51/D52) is present and well-shaped", () => {
+    const pa = digestSchema.frontmatter.provider_anchor;
+    expect(pa).toBeDefined();
+    expect(pa.requires).toEqual(["provider", "observed_at"]);
+    expect(pa.forbids).toEqual(["repo", "sha"]);
+    expect(pa.enforces).toEqual({ scope: "personal", reproducible: false }); // D52
+    expect(pa.run_grade_requires_observed).toBe(true); // D51
+    // provider id pattern: <vendor>/<service>, lowercased, >=2 segments
+    const provRe = new RegExp(pa.fields.provider.pattern);
+    expect(provRe.test("clickhouse/cloud")).toBe(true);
+    expect(provRe.test("aws/lambda-microvms")).toBe(true);
+    expect(provRe.test("noslash")).toBe(false); // needs a service segment
+    expect(provRe.test("Has/Caps")).toBe(false); // lowercased only
+    expect(pa.fields.observed_at.format).toBe("iso8601-utc");
+  });
+
+  it("scope/reproducible are optional schema fields (D52)", () => {
+    const opt = digestSchema.frontmatter.optional;
+    expect(opt.scope.enum).toEqual(["shareable", "personal"]);
+    expect(opt.reproducible.type).toBe("boolean");
   });
 
   it("dependency_kind enum EQUALS log-schema.yaml's (cross-schema drift gate)", () => {
@@ -532,6 +579,25 @@ describe("spec-integrity: log-schema.yaml", () => {
     // Coupled to a served digest (logger-enforced), logged alone at persist.
     expect(String(field.presence)).toMatch(/required together with consulted_cached_digest/);
     expect(String(field.presence)).toMatch(/persisted/);
+  });
+
+  it("provider + credentialed fields (D49/D50) are present and shaped", () => {
+    const provider = logSchema.fields.provider;
+    expect(provider).toBeDefined();
+    expect(new RegExp(provider.pattern).test("clickhouse/cloud")).toBe(true);
+    expect(String(provider.presence)).toMatch(/provider-anchored/);
+    const cred = logSchema.fields.credentialed;
+    expect(cred).toBeDefined();
+    expect(cred.type).toBe("boolean");
+  });
+
+  it("sha presence carries the provider-anchored exemption (D50)", () => {
+    expect(String(logSchema.fields.sha.presence)).toMatch(/provider-anchored/);
+  });
+
+  it("dependency_kind enum includes hosted-closed / sdk-of-hosted-service", () => {
+    expect(logSchema.fields.dependency_kind.enum).toContain("hosted-closed");
+    expect(logSchema.fields.dependency_kind.enum).toContain("sdk-of-hosted-service");
   });
 });
 

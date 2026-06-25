@@ -37,7 +37,7 @@ You do not clone, pin, or check a cache by hand: `scripts/fetch source <url>` gi
 
 ## 4. Classify, state the ceiling (contract:always-verify)
 
-Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (internal, never said aloud). When the kind caps how far verification can go, tell the main thread up front what can be confirmed by running versus only described from docs: an SDK runs the client but only describes the server; a closed hosted service is described only; heavy-infra gets whatever subset ran. All verification is credentials-free — never ask for or use the developer's credentials. A kind-capped ceiling is a completed run, not a failure.
+Classify the dependency kind — `clonable-cli | clonable-library | sdk-of-hosted-service | hosted-closed | heavy-infra` (internal, never said aloud). When the kind caps how far verification can go, tell the main thread up front what can be confirmed by running versus only described from docs: an SDK runs the client but only describes the server; a closed hosted service is described only; heavy-infra gets whatever subset ran. **You verify credentials-free — never ask for or use the developer's credentials.** A closed hosted service you can only describe from docs (docs grade), never operate. Operating one with the developer's own scoped throwaway credentials is a separate, explicit, main-thread opt-in (contract:provider-grounded) persisted via `/tesser-finalize`, never your job. A kind-capped ceiling is a completed run, not a failure.
 
 ## 5. Build, exercise, interpret — the run step (build/exercise depth only)
 

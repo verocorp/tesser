@@ -155,6 +155,24 @@ describe("gate 1: bundled digests", () => {
       expect(status, `digests/${f} failed validation:\n${stderr}`).toBe(0);
     }
   });
+
+  // D52: a personal-scope / provider-anchored digest is account-specific and
+  // not reproducible — it persists to ~/.tesser/ only and must never be
+  // committed into the shareable bundled set. Armed now, vacuous until T9.
+  it("no bundled digest is provider-anchored or scope: personal (D52)", () => {
+    const bundledDir = path.join(repoRoot, "digests");
+    const files = (
+      fs.readdirSync(bundledDir, { recursive: true }) as string[]
+    ).filter((f) => f.endsWith(".md"));
+    for (const f of files) {
+      const text = fs.readFileSync(path.join(bundledDir, f), "utf8");
+      const m = text.match(/^---\n([\s\S]*?)\n---/);
+      if (!m) continue;
+      const fm = yaml.load(m[1]) as any;
+      expect(fm.scope, `bundled digests/${f} must not be scope: personal (D52)`).not.toBe("personal");
+      expect(fm.provider, `bundled digests/${f} must not be provider-anchored (D52)`).toBeUndefined();
+    }
+  });
 });
 
 // Gate 2 — known-GOOD digest validates, including quote-in-range against a
@@ -925,5 +943,130 @@ describe("CC-T7: validate-digest --persist (deterministic atomic move)", () => {
     const r = persistRun(staged);
     expect(r.status, r.stderr).toBe(0);
     expect(r.json.status).toBe("persisted");
+  });
+});
+
+// D50/D51/D52 — provider-anchored digests (a hosted closed service: no clone
+// URL, no commit). The default `required` block stays repo-anchored; a digest
+// is provider-anchored when provider/observed_at appear.
+describe("provider-anchored digests (D50/D51/D52)", () => {
+  const OBSERVED_AT = "2026-06-23T22:30:00Z";
+  const YMD = "20260623";
+
+  function writeProviderDigest(opts: {
+    provider?: string;
+    truthGrade?: string;
+    scope?: string | null; // null = omit
+    reproducible?: boolean | null; // null = omit
+    body?: string;
+    relPath?: string;
+    extra?: Record<string, unknown>;
+    omit?: string[];
+  } = {}): string {
+    const provider = opts.provider ?? "clickhouse/cloud";
+    const fm: Record<string, unknown> = {
+      provider,
+      observed_at: OBSERVED_AT,
+      env: { os: "darwin", arch: "arm64" },
+      commands: [{ cmd: "curl -s usageCost", exit_code: 0 }],
+      ts: "2026-06-23T22:35:00Z",
+      dependency_kind: "hosted-closed",
+      truth_grade: opts.truthGrade ?? "run",
+      scope: "personal",
+      reproducible: false,
+      ...(opts.extra ?? {}),
+    };
+    if (opts.scope !== undefined) {
+      if (opts.scope === null) delete fm.scope;
+      else fm.scope = opts.scope;
+    }
+    if (opts.reproducible !== undefined) {
+      if (opts.reproducible === null) delete fm.reproducible;
+      else fm.reproducible = opts.reproducible;
+    }
+    for (const field of opts.omit ?? []) delete fm[field];
+    const body = opts.body ?? "\n1 CHC = $1 USD ⟦observed⟧.\n";
+    const relPath = opts.relPath ?? `provider/${provider}@${YMD}.md`;
+    const dir = path.join(tmpRoot, `pcase-${caseCounter++}`);
+    const digestPath = path.join(dir, relPath);
+    fs.mkdirSync(path.dirname(digestPath), { recursive: true });
+    fs.writeFileSync(digestPath, `---\n${yaml.dump(fm)}---\n${body}`);
+    return digestPath;
+  }
+
+  it("a valid provider-anchored run-grade digest passes (no --clone)", () => {
+    const { status, stderr } = runValidator(writeProviderDigest());
+    expect(status, stderr).toBe(0);
+  });
+
+  it("repo/sha are forbidden on a provider-anchored digest (D50)", () => {
+    const d = writeProviderDigest({ extra: { repo: "https://github.com/x/y", sha: GOOD_SHA } });
+    const { status, stderr } = runValidator(d);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/must be absent on a provider-anchored/);
+  });
+
+  it("a missing provider field (observed_at alone) is INVALID (D50)", () => {
+    const { status, stderr } = runValidator(writeProviderDigest({ omit: ["provider"] }));
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/missing required field 'provider'/);
+  });
+
+  it("scope must be personal and reproducible false (D52)", () => {
+    expect(runValidator(writeProviderDigest({ scope: "shareable" })).status).toBe(1);
+    expect(runValidator(writeProviderDigest({ reproducible: true })).status).toBe(1);
+    expect(runValidator(writeProviderDigest({ scope: null })).status).toBe(1);
+  });
+
+  it("a run-grade provider digest with no ⟦observed⟧ claim is INVALID (D51)", () => {
+    const d = writeProviderDigest({ body: "\nNo observation here, just prose.\n" });
+    const { status, stderr } = runValidator(d);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/at least one ⟦observed⟧/);
+  });
+
+  it("a docs-grade provider digest does NOT require ⟦observed⟧", () => {
+    const d = writeProviderDigest({ truthGrade: "docs", body: "\nFrom the vendor docs.\n" });
+    const { status, stderr } = runValidator(d);
+    expect(status, stderr).toBe(0);
+  });
+
+  it("⟦observed⟧@<hex> is malformed, not split (token-totality, D51)", () => {
+    const d = writeProviderDigest({ body: "\nBad ⟦observed⟧@deadbeefcafe marker.\n" });
+    const { status, stderr } = runValidator(d);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/malformed token/);
+  });
+
+  it("the digest path must be provider/<vendor>/<service>@<YYYYMMDD>.md (D50)", () => {
+    const d = writeProviderDigest({ relPath: "provider/clickhouse/wrongname@20260623.md" });
+    const { status, stderr } = runValidator(d);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/provider-anchored digest must sit at a path ending/);
+  });
+
+  it("clone checks are inapplicable-by-kind (not errors) with --clone (D50)", () => {
+    const repo = makeFixtureRepo("acme", "widget-prov");
+    const { status, stderr } = runValidator(writeProviderDigest(), repo.dir);
+    expect(status, stderr).toBe(0);
+    expect(stderr).toMatch(/inapplicable to a provider-anchored digest/);
+  });
+
+  it("--persist lands a provider digest at provider/<vendor>/<service>@<YYYYMMDD>.md", () => {
+    const staged = path.join(tmpRoot, `pstage-${caseCounter++}.md`);
+    const src = writeProviderDigest();
+    fs.copyFileSync(src, staged);
+    const res = spawnSync(validator, [staged, "--persist"], {
+      encoding: "utf8",
+      env: { ...process.env, TESSER_HOME: hermeticHome },
+    });
+    expect(res.status, res.stderr).toBe(0);
+    const json = JSON.parse(res.stdout);
+    const expected = path.join(
+      hermeticHome, "digests", "provider", "clickhouse", `cloud@${YMD}.md`,
+    );
+    expect(json.persisted).toBe(expected);
+    expect(fs.existsSync(expected)).toBe(true);
+    expect(json.digest_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });

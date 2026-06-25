@@ -442,3 +442,58 @@ describe("gate 6 — malformed-args rejection + append-only integrity", () => {
     }
   });
 });
+
+// D49/D50 — provider-anchored finalize for a hosted closed / credentialed run.
+describe("provider-anchored finalize (D49/D50)", () => {
+  const DIGEST_SHA256 = "ab".repeat(32);
+  const finalizedLines = (home: string) =>
+    logLines(home).filter((l) => l.event === "finalized");
+
+  it("completed with --provider and no --sha succeeds (D50 sha exemption)", () => {
+    const home = freshHome();
+    const id = openOk(home, "how does ClickHouse Cloud bill storage");
+    const res = run(home, [
+      "finalize", "--id", id, "--outcome", "completed",
+      "--provider", "clickhouse/cloud", "--credentialed",
+      "--dependency-kind", "hosted-closed", "--digest-sha256", DIGEST_SHA256,
+    ]);
+    expect(res.status, res.stderr).toBe(0);
+    const fin = finalizedLines(home)[0];
+    expect(fin.provider).toBe("clickhouse/cloud");
+    expect(fin.credentialed).toBe(true);
+    expect(fin.sha).toBeUndefined();
+    expect(fin.repo).toBeUndefined();
+    // every key stays within the schema's finalized field set
+    const allowed = fieldsFor("finalized");
+    for (const k of Object.keys(fin)) expect(allowed).toContain(k);
+  });
+
+  it("--provider and --repo together is rejected, nothing appended (one anchor, D50)", () => {
+    const home = freshHome();
+    const id = openOk(home, "q");
+    const res = run(home, [
+      "finalize", "--id", id, "--outcome", "completed",
+      "--provider", "clickhouse/cloud", "--repo", "https://github.com/x/y", "--sha", VALID_SHA,
+    ]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/mutually exclusive/);
+    expect(finalizedLines(home)).toHaveLength(0);
+  });
+
+  it("a malformed --provider is rejected, nothing appended", () => {
+    const home = freshHome();
+    const id = openOk(home, "q");
+    const res = run(home, ["finalize", "--id", id, "--outcome", "completed", "--provider", "NoSlash"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/--provider must match/);
+    expect(finalizedLines(home)).toHaveLength(0);
+  });
+
+  it("a repo-anchored completed run still requires --sha (D33 intact)", () => {
+    const home = freshHome();
+    const id = openOk(home, "q");
+    const res = run(home, ["finalize", "--id", id, "--outcome", "completed", "--repo", "https://github.com/x/y"]);
+    expect(res.status).not.toBe(0);
+    expect(res.stderr).toMatch(/--sha is required when --outcome is completed/);
+  });
+});

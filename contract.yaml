@@ -34,10 +34,17 @@ clauses:
 
   - id: always-verify
     delta: true # value-over-baseline delta (ii)
-    source: ["design §Narrowest Wedge (ii)", "D3/2A", "D20", "D30"]
+    source: ["design §Narrowest Wedge (ii)", "D3/2A", "D20", "D30", "D49"]
     statement: >-
-      Every run builds and verifies by use, credentials-free, via the
-      fallback ladder: runnable binary > test suite > minimal example.
+      Every run builds and verifies by use, credentials-free by default, via
+      the fallback ladder: runnable binary > test suite > minimal example.
+      Credentials-free is the axiom: the background grounding subagent never
+      asks for or uses the developer's credentials. The one exception (D49,
+      contract:provider-grounded) is an explicit per-session developer opt-in
+      to operate a credentialed hosted service — main-thread, dev-supervised,
+      against a scoped throwaway identity, never the developer's primary creds,
+      with no credential machinery built; its findings persist only via the
+      manual /tesser-finalize path, never the background auto-persist.
       Preflight classifies the dependency kind (clonable-cli /
       clonable-library / sdk-of-hosted-service / hosted-closed /
       heavy-infra, the D20 ladder as D30 slugs) and, when the kind caps
@@ -46,6 +53,32 @@ clauses:
       verified run at the same repo@SHA, served via a validated digest or
       reused artifacts, satisfies this clause; SHA drift between digest and
       repo is flagged per digest-consult.
+
+  - id: provider-grounded
+    delta: true # value-over-baseline delta — persists credentialed/non-repo runs
+    source: ["D49", "D50", "D51", "D52", "D53", "retro 65554f54 + b3455559 (2026-06-25)"]
+    # The highest-value runs operate a live hosted service (AWS Lambda microVMs,
+    # ClickHouse Cloud) and produced run-verified facts that fell on the floor
+    # because the cache models a git repo, not a learned-by-operating fact. This
+    # clause is the minimal carve-out: a non-repo identity, an honest provenance
+    # marker, a personal scope, and a deliberate manual persist.
+    statement: >-
+      A run whose verified target is a hosted closed service (no clonable repo)
+      is grounded and persisted as a PROVIDER-ANCHORED digest: identity
+      provider/<vendor>/<service>, pinned by the observation date (no commit),
+      with the clone-bound validator checks inapplicable by kind. Facts
+      established by operating the live service carry the ⟦observed⟧ provenance
+      marker (D51) — run-grade but never laundered as source-grounded or recall;
+      a run-grade provider digest carries at least one ⟦observed⟧ claim. Such a
+      digest is personal and not reproducible (scope: personal, reproducible:
+      false, D52): it persists to ~/.tesser/digests/ for the operating developer
+      only and never enters the bundled digests/ set. It is written by the
+      explicit, developer-invoked /tesser-finalize skill (D53), the deliberate
+      entry point for the credentialed/non-repo path that the background
+      auto-persist never reaches. When a run-grade or credentialed investigation
+      ran and the session ends with nothing persisted, tesser says so plainly
+      ("this run isn't persisted — run /tesser-finalize to keep it") rather than
+      believing it cached when it did not.
 
   - id: question-led
     delta: true # value-over-baseline delta (iii)

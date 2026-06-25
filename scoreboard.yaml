@@ -134,6 +134,23 @@ axes:
         ~40 min, so the dev chased a phantom (the call had worked the whole time).
       status: advisory                    # n=1 (0d3b1734). Promote to load-bearing once `npm run judge` replicates Chris on >=5 labeled make-it-work scenarios (the lying-signals catalog: false-pos HTTP200/exit0/job-id, false-neg ran-not-attributed, delayed cache/async).
       deferred_to_v2: "the corollary that the AGENT runs its own degraded self-check BEFORE delegating is actually-verify (#1) — deferred with the run/sandbox tier, same line as the rest of #1."
+    observed_provenance:                  # D51/D52 (2026-06-25) — provenance + reproducibility honesty for hosted-service runs. ADVISORY.
+      scope: "applies when the answer reports facts established by OPERATING a live hosted/credentialed service (provider-anchored, ⟦observed⟧)."
+      rule: >
+        Obligation A extends to a third provenance surface: a fact learned by
+        operating a live service is ⟦observed⟧ — checkable as "I ran it and saw
+        X", never laundered as source-grounded (a repo line) or recall (training).
+        Obligation B adds a reproducibility caveat: observed facts are
+        account-specific and time-specific, so the answer flags them as not
+        reproducible ("true of your account when I ran it"), never as documented
+        behavior.
+      failure_mode: >
+        provenance-laundering — stating an observed fact as if a repo's source or
+        the vendor's docs established it (the firecracker-shoehorn: filing
+        AWS-Lambda-microVM behavior under the OSS firecracker repo). And
+        overclaiming reproducibility — presenting an account-specific observation
+        as a general guarantee.
+      status: advisory                    # encode-from-retro (65554f54, b3455559); promote once judged on labeled hosted-service sessions.
     edge_over_default: >
       The bare agent flags gaps ad-hoc (codeharness: it caught the placeholder/
       forward-dated model IDs, Python-only validation, and the `git add -A` blast

@@ -56,6 +56,9 @@ DEPENDENCY_KINDS = (
 )
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+# D50: provider identity <vendor>/<service> for a provider-anchored finalize
+# (mirrors digest-schema.yaml provider_anchor.fields.provider).
+PROVIDER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]*(/[a-z0-9][a-z0-9._-]*)+$")
 UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 )
@@ -155,10 +158,22 @@ def cmd_finalize(args: argparse.Namespace) -> None:
         )
     if args.sha is not None and not SHA_PATTERN.match(args.sha):
         fail(f"--sha must match ^[0-9a-f]{{40}}$, got {args.sha!r}")
+    # D50: a provider-anchored finalize (--provider) has no clone URL and no
+    # commit. repo+provider on one finalize is two anchors — reject it.
+    if args.provider is not None and not PROVIDER_PATTERN.match(args.provider):
+        fail(
+            f"--provider must match ^[a-z0-9][a-z0-9.-]*(/[a-z0-9][a-z0-9._-]*)+$ "
+            f"(<vendor>/<service>, D50), got {args.provider!r}"
+        )
+    if args.provider is not None and args.repo is not None:
+        fail("--provider and --repo are mutually exclusive (one anchor per finalize, D50)")
+    if args.provider is not None and args.sha is not None:
+        fail("--provider and --sha are mutually exclusive (a provider run has no commit, D50)")
     # D33: a completed run by definition pinned a commit — the logger gates
     # it. completed-unverified legitimately has no sha (e.g. a docs-grade
     # answer after a failed clone); there, presence means a pin happened.
-    if args.outcome == "completed" and args.sha is None:
+    # D50 exemption: a provider-anchored completed run has no commit to pin.
+    if args.outcome == "completed" and args.sha is None and args.provider is None:
         fail("--sha is required when --outcome is completed (D33)")
     if args.digest_sha256 is not None and not DIGEST_SHA256_PATTERN.match(
         args.digest_sha256
@@ -189,6 +204,10 @@ def cmd_finalize(args: argparse.Namespace) -> None:
     }
     if args.repo is not None:
         record["repo"] = args.repo
+    if args.provider is not None:
+        record["provider"] = args.provider
+    if args.credentialed:
+        record["credentialed"] = True
     if args.sha is not None:
         record["sha"] = args.sha
     if args.dependency_kind is not None:
@@ -220,6 +239,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_fin.add_argument("--id", required=True, help="id printed by the matching open")
     p_fin.add_argument("--outcome", required=True, help=f"one of: {', '.join(OUTCOMES)}")
     p_fin.add_argument("--repo", help="resolved canonical clone URL")
+    p_fin.add_argument(
+        "--provider",
+        help="provider identity <vendor>/<service> for a provider-anchored run (D50; mutually exclusive with --repo/--sha)",
+    )
+    p_fin.add_argument(
+        "--credentialed",
+        action="store_true",
+        help="passive marker that this run used developer-supplied credentials (D49)",
+    )
     p_fin.add_argument("--sha", help="pinned 40-hex commit SHA")
     p_fin.add_argument(
         "--dependency-kind",

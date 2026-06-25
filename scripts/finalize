@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""tesser manual finalize (D53).
+
+The deliberate, developer-invoked persist for the run-grade / credentialed /
+non-repo path that the background auto-persist never reaches (the "never-opened"
+leak: a credentialed investigation runs in the main thread and never enters the
+pipeline). Driven by the /tesser-finalize skill.
+
+One call does the whole persist + log:
+  1. validate AND persist the staged digest (scripts/validate-digest --persist),
+  2. open a log record for the run,
+  3. finalize that record with the persisted digest's hash.
+
+A provider-anchored run (a hosted closed service) passes --provider; a
+repo-anchored run passes --repo + --sha. Exactly one anchor.
+
+Usage:
+  finalize --digest <staged.md> --question <text> --dependency-kind <kind>
+           ( --provider <vendor/service> [--credentialed] | --repo <url> --sha <40hex> )
+           [--clone <dir>] [--outcome <outcome>]
+
+Exit codes mirror validate-digest for the persist step (0 ok, 1 invalid digest,
+2 usage, 3 setup needed, 4 environment). A clean persist that then fails to log
+exits 5 (the digest IS saved; only the instrument record failed).
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+VALIDATE = os.path.join(SCRIPTS_DIR, "validate-digest")
+LOG = os.path.join(SCRIPTS_DIR, "log-invocation")
+
+
+def fail(message, code=2):
+    sys.stderr.write(f"finalize: error: {message}\n")
+    sys.exit(code)
+
+
+def main():
+    p = argparse.ArgumentParser(prog="finalize", description=__doc__)
+    p.add_argument("--digest", required=True, help="path to the staged digest .md")
+    p.add_argument("--question", required=True, help="the developer's question, verbatim")
+    p.add_argument("--dependency-kind", dest="dependency_kind", required=True)
+    p.add_argument("--provider", help="provider identity <vendor>/<service> (provider-anchored)")
+    p.add_argument("--repo", help="resolved clone URL (repo-anchored)")
+    p.add_argument("--sha", help="pinned 40-hex commit (repo-anchored)")
+    p.add_argument("--credentialed", action="store_true", help="this run used the developer's scoped creds (D49)")
+    p.add_argument("--clone", help="clone dir for quote-in-range (repo-anchored only)")
+    p.add_argument("--outcome", default="completed", help="log outcome (default: completed)")
+    args = p.parse_args()
+
+    # Exactly one anchor.
+    if args.provider and (args.repo or args.sha):
+        fail("--provider is mutually exclusive with --repo/--sha (one anchor, D50)")
+    if not args.provider and not (args.repo and args.sha):
+        fail("provide --provider OR (--repo AND --sha)")
+    if not os.path.isfile(args.digest):
+        fail(f"no such digest file: {args.digest}")
+
+    # 1. Validate + persist. validate-digest owns the move to ~/.tesser/digests/
+    # and prints {persisted, digest_sha256, status}; we never construct the path.
+    vd_cmd = [VALIDATE, args.digest, "--persist"]
+    if args.clone:
+        vd_cmd[2:2] = ["--clone", args.clone]
+    vd = subprocess.run(vd_cmd, capture_output=True, text=True)
+    if vd.returncode != 0:
+        sys.stderr.write(vd.stderr)
+        # Pass through validate-digest's exit code (1 invalid, 3 setup, 4 env).
+        sys.exit(vd.returncode)
+    try:
+        persisted = json.loads(vd.stdout.strip().splitlines()[-1])
+        digest_sha256 = persisted["digest_sha256"]
+    except (ValueError, KeyError, IndexError):
+        fail(f"could not parse validate-digest output: {vd.stdout!r}", code=5)
+
+    # 2. Open a log record for this run.
+    open_cmd = [LOG, "open", "--question", args.question]
+    if args.repo:
+        open_cmd += ["--repo", args.repo]
+    opened = subprocess.run(open_cmd, capture_output=True, text=True)
+    if opened.returncode != 0:
+        sys.stderr.write(opened.stderr)
+        fail("digest persisted, but opening the log record failed", code=5)
+    record_id = opened.stdout.strip()
+
+    # 3. Finalize that record with the anchor + the persisted digest's hash.
+    fin_cmd = [
+        LOG, "finalize", "--id", record_id, "--outcome", args.outcome,
+        "--dependency-kind", args.dependency_kind, "--digest-sha256", digest_sha256,
+    ]
+    if args.provider:
+        fin_cmd += ["--provider", args.provider]
+        if args.credentialed:
+            fin_cmd += ["--credentialed"]
+    else:
+        fin_cmd += ["--repo", args.repo, "--sha", args.sha]
+        if args.credentialed:
+            fin_cmd += ["--credentialed"]
+    fin = subprocess.run(fin_cmd, capture_output=True, text=True)
+    if fin.returncode != 0:
+        sys.stderr.write(fin.stderr)
+        fail("digest persisted, but finalizing the log record failed", code=5)
+
+    sys.stdout.write(json.dumps({
+        "persisted": persisted["persisted"],
+        "status": persisted["status"],
+        "digest_sha256": digest_sha256,
+        "log_id": record_id,
+    }, ensure_ascii=False) + "\n")
+
+
+if __name__ == "__main__":
+    main()
