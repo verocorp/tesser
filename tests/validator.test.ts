@@ -1038,6 +1038,18 @@ describe("provider-anchored digests (D50/D51/D52)", () => {
     expect(stderr).toMatch(/malformed token/);
   });
 
+  it("a file citation in a provider digest is INVALID — nothing to verify it against (finding #1/D51)", () => {
+    // Has a valid ⟦observed⟧ (so the run-grade rule is satisfied); the file
+    // citation must still be rejected — a provider digest has no clone/sha, so
+    // quote-in-range and suffix-equals-sha can't check it (no-laundering hole).
+    const d = writeProviderDigest({
+      body: "\n1 CHC = $1 ⟦observed⟧. Billing at ⟦internal/billing.go:L1-L9⟧@deadbeefcafe.\n",
+    });
+    const { status, stderr } = runValidator(d);
+    expect(status).toBe(1);
+    expect(stderr).toMatch(/not allowed in a provider-anchored digest/);
+  });
+
   it("the digest path must be provider/<vendor>/<service>@<YYYYMMDD>.md (D50)", () => {
     const d = writeProviderDigest({ relPath: "provider/clickhouse/wrongname@20260623.md" });
     const { status, stderr } = runValidator(d);
@@ -1068,5 +1080,100 @@ describe("provider-anchored digests (D50/D51/D52)", () => {
     expect(json.persisted).toBe(expected);
     expect(fs.existsSync(expected)).toBe(true);
     expect(json.digest_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("scripts/finalize (D53) — the manual persist orchestrator", () => {
+  const finalizeScript = path.join(repoRoot, "scripts", "finalize");
+  const OBS = "2026-06-23T22:35:00Z";
+  let finCounter = 0;
+
+  function stageProviderDigest(
+    overrides: Record<string, unknown> = {},
+    body = "\n1 CHC = $1 USD ⟦observed⟧.\n",
+  ): string {
+    const fm: Record<string, unknown> = {
+      provider: "clickhouse/cloud",
+      observed_at: OBS,
+      env: { os: "darwin", arch: "arm64" },
+      commands: [{ cmd: "curl -s usageCost", exit_code: 0 }],
+      ts: OBS,
+      dependency_kind: "hosted-closed",
+      truth_grade: "run",
+      scope: "personal",
+      reproducible: false,
+      ...overrides,
+    };
+    const dir = path.join(tmpRoot, `finstage-${finCounter++}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, "staged.md");
+    fs.writeFileSync(p, `---\n${yaml.dump(fm)}---\n${body}`);
+    return p;
+  }
+
+  function runFinalize(args: string[], home?: string) {
+    const h = home ?? fs.mkdtempSync(path.join(tmpRoot, "finhome-"));
+    const res = spawnSync(finalizeScript, args, {
+      encoding: "utf8",
+      env: { ...process.env, TESSER_HOME: h },
+    });
+    if (res.error) throw res.error;
+    return { status: res.status, stdout: res.stdout, stderr: res.stderr, home: h };
+  }
+
+  it("persists a provider digest and writes a finalized log record in one call", () => {
+    const staged = stageProviderDigest();
+    const { status, stdout, stderr, home } = runFinalize([
+      "--digest", staged, "--question", "clickhouse billing?",
+      "--dependency-kind", "hosted-closed", "--provider", "clickhouse/cloud",
+      "--credentialed",
+    ]);
+    expect(status, stderr).toBe(0);
+    const out = JSON.parse(stdout);
+    expect(out.digest_sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(out.log_id).toBeTruthy();
+    expect(fs.existsSync(out.persisted)).toBe(true);
+    const log = fs.readFileSync(path.join(home, "log.jsonl"), "utf8");
+    expect(log).toMatch(/finalized/);
+    expect(log).toMatch(/clickhouse\/cloud/);
+  });
+
+  it("rejects repo flags on a provider-anchored digest (anchor cross-check, finding #3)", () => {
+    const staged = stageProviderDigest();
+    const { status, stderr } = runFinalize([
+      "--digest", staged, "--question", "q", "--dependency-kind", "hosted-closed",
+      "--repo", "https://github.com/x/y", "--sha", GOOD_SHA,
+    ]);
+    expect(status).toBe(2);
+    expect(stderr).toMatch(/provider-anchored/);
+  });
+
+  it("rejects --provider on a repo-anchored digest (anchor cross-check, finding #3)", () => {
+    const { status, stderr } = runFinalize([
+      "--digest", goodFixture, "--question", "q",
+      "--dependency-kind", "clonable-library", "--provider", "x/y",
+    ]);
+    expect(status).toBe(2);
+    expect(stderr).toMatch(/repo-anchored/);
+  });
+
+  it("refuses a same-day re-observation with different content — no silent drop, no lying log (finding #1/D50)", () => {
+    const home = fs.mkdtempSync(path.join(tmpRoot, "finhome-conflict-"));
+    const a = stageProviderDigest({}, "\n1 CHC = $1 USD ⟦observed⟧.\n");
+    const first = runFinalize([
+      "--digest", a, "--question", "q", "--dependency-kind", "hosted-closed",
+      "--provider", "clickhouse/cloud",
+    ], home);
+    expect(first.status, first.stderr).toBe(0);
+
+    const b = stageProviderDigest({}, "\nStorage is $0.02 per GB-month ⟦observed⟧.\n");
+    const second = runFinalize([
+      "--digest", b, "--question", "q", "--dependency-kind", "hosted-closed",
+      "--provider", "clickhouse/cloud",
+    ], home);
+    expect(second.status).toBe(1);
+    expect(second.stderr).toMatch(/refusing to overwrite/);
+    // the staged second digest is left untouched (not consumed by the failed move)
+    expect(fs.existsSync(b)).toBe(true);
   });
 });

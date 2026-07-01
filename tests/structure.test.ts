@@ -485,6 +485,21 @@ describe("spec-integrity: contract.yaml", () => {
     expect(clause!.statement).toMatch(/credentials-free by default/);
     expect(clause!.statement).toMatch(/contract:provider-grounded/);
   });
+
+  it("always-verify pins the open-set credential-handling pattern (W5/W6/W7)", () => {
+    const clause = contract.clauses.find((c) => c.id === "always-verify");
+    const s = clause!.statement;
+    expect(s).toMatch(/referenced, never read literally/); // reference-not-read (W5)
+    expect(s).toMatch(/narrowest, most-revocable identity/); // narrowest-revocable (W6)
+    expect(s).toMatch(/torn down/); // teardown-where-broad (W6)
+    expect(s).toMatch(/no credential machinery is built/); // no machinery
+    expect(s).toMatch(/distinct credential role/); // harness-cred role, impl v2 (W7)
+  });
+
+  it("provider-grounded pins the silent-drop guard wording (D53)", () => {
+    const clause = contract.clauses.find((c) => c.id === "provider-grounded");
+    expect(clause!.statement).toMatch(/this run isn't persisted/);
+  });
 });
 
 describe("spec-integrity: digest-schema.yaml", () => {
@@ -536,6 +551,16 @@ describe("spec-integrity: digest-schema.yaml", () => {
     const digestKinds = digestSchema.frontmatter.required.dependency_kind.enum;
     const logKinds = logSchema.fields.dependency_kind.enum;
     expect(digestKinds).toEqual(logKinds);
+  });
+
+  it("provider identity pattern is identical across the 3 files (cross-pin, audit)", () => {
+    // The <vendor>/<service> regex is duplicated in digest-schema.yaml,
+    // log-schema.yaml, and scripts/log-invocation. Unlike dependency_kind it had
+    // no cross-pin, so the three could drift. Pin them equal.
+    const digestPat = digestSchema.frontmatter.provider_anchor.fields.provider.pattern;
+    expect(logSchema.fields.provider.pattern).toEqual(digestPat);
+    const loginv = readFileSync(join(repoRoot, "scripts", "log-invocation"), "utf8");
+    expect(loginv.includes(digestPat)).toBe(true);
   });
 });
 

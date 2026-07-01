@@ -27,6 +27,7 @@ exits 5 (the digest IS saved; only the instrument record failed).
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -38,6 +39,27 @@ LOG = os.path.join(SCRIPTS_DIR, "log-invocation")
 def fail(message, code=2):
     sys.stderr.write(f"finalize: error: {message}\n")
     sys.exit(code)
+
+
+def digest_anchor_kind(path):
+    """Lightweight frontmatter scan (no yaml/venv dependency): a digest is
+    provider-anchored when a top-level `provider:` or `observed_at:` key is
+    present in the frontmatter, else repo-anchored. Mirrors
+    validate-digest.anchor_kind, for the flag cross-check only. Returns
+    'provider' | 'repo' | None (frontmatter unreadable/absent)."""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            text = fh.read()
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    fm = text[3:end] if end != -1 else text[3:]
+    for line in fm.splitlines():
+        if re.match(r"^(provider|observed_at)\s*:", line):
+            return "provider"
+    return "repo"
 
 
 def main():
@@ -60,6 +82,19 @@ def main():
         fail("provide --provider OR (--repo AND --sha)")
     if not os.path.isfile(args.digest):
         fail(f"no such digest file: {args.digest}")
+
+    # Cross-check the flags against the digest's OWN anchor kind. validate-digest
+    # persists to the correct path by frontmatter regardless of these flags, so a
+    # mismatch (e.g. --repo/--sha on a provider-anchored digest) would silently
+    # produce a provider digest paired with a repo-anchored LOG record. Catch the
+    # operator slip before anything is written.
+    kind = digest_anchor_kind(args.digest)
+    if kind == "provider" and not args.provider:
+        fail("digest is provider-anchored (frontmatter has provider/observed_at) "
+             "but --repo/--sha was given — pass --provider <vendor>/<service> (D50)")
+    if kind == "repo" and args.provider:
+        fail("digest is repo-anchored (frontmatter has repo/sha) but --provider "
+             "was given — pass --repo <url> --sha <40hex> (D50)")
 
     # 1. Validate + persist. validate-digest owns the move to ~/.tesser/digests/
     # and prints {persisted, digest_sha256, status}; we never construct the path.

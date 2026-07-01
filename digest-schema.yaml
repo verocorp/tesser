@@ -45,7 +45,7 @@ identity:
   # discriminator is the observation date YYYYMMDD (derived from observed_at),
   # not a sha12. A digest is EITHER repo-anchored OR provider-anchored, never both.
   provider_key: provider + <vendor>/<service> # e.g. provider/clickhouse/cloud
-  provider_digest_path: "provider/<vendor>/<repo>@<observed>.md" # <observed> = YYYYMMDD of observed_at
+  provider_digest_path: "provider/<vendor>/<service>@<observed>.md" # <observed> = YYYYMMDD of observed_at
 
 frontmatter:
   required:

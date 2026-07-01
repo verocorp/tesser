@@ -531,6 +531,21 @@ def check_citations(body, fm, schema, failures):
         if observed_token is not None and token == observed_token:
             idx = m.end()
             continue
+        # D50/D51 no-laundering: the remaining token is an ordinary file citation
+        # (path:Lstart-Lend[@sha12]). A provider-anchored digest has no clone and
+        # no frontmatter sha, so quote-in-range and suffix-equals-sha are both
+        # inapplicable — the citation would validate with any path/range/suffix,
+        # letting a personal-scope digest carry a source-grounded-LOOKING claim
+        # that nothing checks. Reject it; observed facts use ⟦observed⟧.
+        if anchor_kind(fm) == "provider":
+            failures.append(
+                f"citation: file citation at body line {line_no} is not allowed "
+                f"in a provider-anchored digest — it has no repo/sha to verify "
+                f"against (quote-in-range and suffix-equals-sha are inapplicable); "
+                f"use ⟦observed⟧ for an observed fact (D51)"
+            )
+            idx = m.end()
+            continue
         ext = CITATION_EXTRACT.match(token)
         # token_pattern is a strict subset of the extraction regex, so this
         # always matches; guard anyway.
@@ -769,17 +784,34 @@ def persist_digest(digest_path, fm):
         _state_root(), "digests", host, *segments[:-1], f"{segments[-1]}@{disc}.md"
     )
     if os.path.exists(target):
-        # First-writer-wins (Codex #11): same identity@sha is equivalent content,
-        # so a present target is the authoritative copy — never clobber it.
+        with open(target, "rb") as fh:
+            existing_sha256 = hashlib.sha256(fh.read()).hexdigest()
+        with open(digest_path, "rb") as fh:
+            staged_sha256 = hashlib.sha256(fh.read()).hexdigest()
+        if anchor_kind(fm) == "provider" and staged_sha256 != existing_sha256:
+            # D50 honesty guard: a repo digest's identity@sha is content-addressed,
+            # so a present target is equivalent content and first-writer-wins is
+            # safe. A provider digest's day-granular key (@YYYYMMDD) is NOT — a
+            # same-day re-observation can carry DIFFERENT content and collide here.
+            # Silently keeping the earlier copy and returning ITS hash would make
+            # finalize write a log record that lies about what was saved. Refuse
+            # rather than drop; the staged file is left for the operator to rename.
+            # (Full multiple-observations-per-day support is deferred to the
+            # evidence-bundle rework — docs/claim-cache-design.md.)
+            return target, existing_sha256, "conflict"
+        # First-writer-wins (Codex #11): a present target is the authoritative copy
+        # — repo digests are content-addressed; a provider digest reaching here is
+        # byte-identical (idempotent re-persist). Never clobber.
+        digest_sha256 = existing_sha256
         status = "already-present"
     else:
         os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
         # os.replace is an atomic rename within the same filesystem (staged builds/
         # and digests/ both live under the state root) — the "atomic stage->rename".
         os.replace(digest_path, target)
+        with open(target, "rb") as fh:
+            digest_sha256 = hashlib.sha256(fh.read()).hexdigest()
         status = "persisted"
-    with open(target, "rb") as fh:
-        digest_sha256 = hashlib.sha256(fh.read()).hexdigest()
     return target, digest_sha256, status
 
 
@@ -928,6 +960,19 @@ def main(argv):
         except (ValueError, OSError) as e:
             sys.stderr.write(f"ENVIRONMENT: persist failed: {e}\n")
             return 4
+        if status == "conflict":
+            # A different provider observation already occupies this day-key. This
+            # is not an environment failure and not a malformed digest — it is a
+            # refusal to overwrite non-equivalent content under a non-content-
+            # addressed key (D50). Exit 1 so finalize aborts and never writes a log
+            # record pointing at the earlier, different digest.
+            sys.stderr.write(
+                f"INVALID: a different observation already exists at {target} for "
+                f"this provider on the same day — refusing to overwrite (the "
+                f"provider day-key is not content-addressed, D50). Not persisted; "
+                f"the earlier digest stands and the staged file is untouched.\n"
+            )
+            return 1
         sys.stdout.write(json.dumps({
             "persisted": target,
             "digest_sha256": digest_sha256,
