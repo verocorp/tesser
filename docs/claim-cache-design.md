@@ -169,6 +169,80 @@ overview run persists a docs-grade digest.
 
 ---
 
+## Credentialed provider runs + the evidence layer (2026-06-25 retro input)
+
+Three credentialed `/tesser` sessions (65554f54 AWS Lambda microVMs, b3455559
+ClickHouse Cloud, 2c7423b5 AssemblyAI medical-STT bake-off) produced the retro
+that ratified D49–D53 (the provider-grounded carve-out) and then surfaced wrinkles
+the carve-out does not yet handle. The carve-out makes *single-service* credentialed
+runs persistable; the dominant real shape is **comparative, measurement-bearing, and
+conditionally-reproducible**. These land here because they are the cache re-work's
+design, not a v1 patch.
+
+**The through-line (the design spine).** The digest holds **captured evidence +
+provenance pointers**; everything derived from it — comparisons, reproducibility,
+grade nuance, the prose answer — is **computed just-in-time, not redundantly written
+in.** Chris reached this from three directions (JIT comparison, "capture the evidence
+not a second written record", "a boolean is a judgment on top of raw evidence"); it is
+one principle.
+
+**The evidence-bundle model (W3 + W8).** Today the run grade *re-transcribes*
+observed outcomes into prose and backs them with *source* citations to the code
+(conc's "counter exactly 100 ⟦pool/pool.go:L1-L60⟧" — the citation points at the code
+that *should* produce the behavior; the observed value points at nothing). There is no
+pointer-able evidence artifact for an observation. `⟦observed⟧` (D51) is the right slot
+but bare; filling it with data+caveats would make it a re-transcription — the overclaim
+D51 exists to prevent. Fix: a persisted digest becomes a small **directory**
+(`digest.md` + an `evidence/` dir of captured-as-produced artifacts — raw API
+responses, results TSVs, the generated `wer-report.html`), and `⟦observed⟧` gains a
+**pointer form** (`⟦evidence/wer-results.tsv:L4-L9⟧`) structurally parallel to
+`⟦path:L-L⟧@sha`, with quote-in-range verifying against the bundled evidence file.
+This solves W8 (the artifact *is* the bundle, not a fragile external reference) and
+retroactively upgrades *existing* run-grade digests — a general run-grade improvement,
+not provider-only. Rejected: point-at-project-artifact (fragile; collapses into the
+bundle) and a separate hand-authored measurement file (a second written record — the
+thing to avoid).
+
+**Derived-not-stored, three instances.**
+- **W1 — comparison has no identity.** A bake-off (AssemblyAI vs Deepgram vs Cartesia
+  on one corpus) is the load-bearing artifact but has no single `provider/...`
+  identity. Do not mint a bespoke "comparison" identity; store each service's raw
+  captured evidence and **derive the matrix on read (JIT)** (Chris's call, 2026-06-25).
+- **W4 — `reproducible` boolean is a smell.** It is a *judgment on top of evidence*,
+  and not even single-valued (WER reproduces, latency does not). Its only real job is a
+  bundling/shareability gate on an empty, manually-committed shared set; leave the
+  boolean as a v1 stopgap and, in the re-work, **derive shareability from the
+  provenance** rather than store a bit.
+- **W9 — provenance must capture the measurement apparatus.** An observation's
+  environment includes the observer, not just the system-under-test: the AssemblyAI
+  latency is "as measured by a laptop on residential net → GCP" — two environments in
+  one fact. Capture the full apparatus; staleness/comparability become derivable
+  (nothing is fully reproducible — you are labeling thresholds).
+
+**Personal-vs-shareable is a cache-identity axis.** Credentialed/account-specific
+digests (ClickHouse billing, AssemblyAI results), private-repo digests, and anything
+with PII/secrets in captured evidence must never enter the bundled `digests/` set
+(whose only share path is a repo commit + clone, currently empty). The re-work models
+personal vs shareable properly; v1's `scope: personal` + `reproducible: false` are the
+stopgap.
+
+**Known v1 limit (acted on now).** Until the evidence-bundle exists, a
+measurement-bearing run cannot be finalized without either losing the numbers (bare
+`⟦observed⟧`) or overclaiming (data-in-marker). So **do not `/tesser-finalize`
+measurement-bearing runs** for now; the silent-drop guard ("this run isn't persisted")
+already covers saying so.
+
+**Dispositions of the other wrinkles.** W2 (hybrid SDK+service) is **closed** — make
+two digests, the SDK repo-anchored and the service provider-anchored; the schema
+already supports it. W5/W6/W7 (credential handling: reference-not-read,
+narrowest-revocable-identity, teardown-where-broad, no machinery, + the harness-cred
+role) are a **contract change** to the `always-verify` D49 opt-in, not a cache-layer
+concern. This whole section feeds the **cache red-team** (TODOS) — the
+memory-architecture decision the current `identity@sha` flat-file scheme is only a
+baseline for.
+
+---
+
 ## NOT in scope (deferred, with rationale)
 
 - **Granular structured claim store + retrieval engine** — eval-gated. Build only

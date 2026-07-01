@@ -41,10 +41,20 @@ clauses:
       Credentials-free is the axiom: the background grounding subagent never
       asks for or uses the developer's credentials. The one exception (D49,
       contract:provider-grounded) is an explicit per-session developer opt-in
-      to operate a credentialed hosted service — main-thread, dev-supervised,
-      against a scoped throwaway identity, never the developer's primary creds,
-      with no credential machinery built; its findings persist only via the
-      manual /tesser-finalize path, never the background auto-persist.
+      to operate a credentialed hosted service — main-thread, dev-supervised.
+      Credential handling follows one general pattern for any auth type (not a
+      fixed enumeration): the secret is referenced, never read literally (an
+      env-file path sourced into the environment, or an env var — never the
+      key value in a command or the transcript); the run uses the narrowest,
+      most-revocable identity the provider offers (a revocable API key as-is,
+      or a scoped throwaway principal explicitly torn down when the platform's
+      native credentials are broad, e.g. cloud IAM), never the developer's
+      primary creds; and no credential machinery is built or persisted.
+      Credentials for eval scaffolding tesser itself stands up (e.g. running
+      benchmarks in tesser's own cloud) are a distinct credential role handled
+      under the same pattern — standing up that infrastructure is a v2
+      capability, acknowledged and deferred in v1. Its findings persist only
+      via the manual /tesser-finalize path, never the background auto-persist.
       Preflight classifies the dependency kind (clonable-cli /
       clonable-library / sdk-of-hosted-service / hosted-closed /
       heavy-infra, the D20 ladder as D30 slugs) and, when the kind caps
