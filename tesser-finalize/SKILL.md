@@ -18,15 +18,17 @@ Use it when a run produced something worth keeping that wasn't saved: facts lear
 
    Spec for both: `digest-schema.yaml`. Stage it anywhere — `scripts/finalize` computes the correct location; never hand-build a `digests/` path.
 
-2. **Persist + log in one call:**
+2. **Persist + log in one call.** Run this skill's own `finalize` entry point (it
+   forwards to the tesser scripts wherever tesser is installed) — `$SKILL_DIR` is
+   this skill's directory, which Claude Code gives you at invocation:
 
    ```
-   scripts/finalize --digest <staged.md> --question "<the dev's question>" \
+   python3 "$SKILL_DIR/finalize" --digest <staged.md> --question "<the dev's question>" \
      --dependency-kind <kind> \
      ( --provider <vendor>/<service> [--credentialed] | --repo <url> --sha <40hex> [--clone <dir>] )
    ```
 
-   It validates and persists the map to `~/.tesser/digests/` (a provider map lands under `provider/<vendor>/<service>@<YYYYMMDD>.md`, personal-scope, never bundled), opens a log record, and finalizes it with the persisted map's hash. Exit 0 = saved; 1 = the map was invalid (fix it); 3 = run `scripts/setup` first; 4 = environment, keep the file and retry.
+   It validates and persists the map to `~/.tesser/digests/` (a provider map lands under `provider/<vendor>/<service>@<YYYYMMDD>.md`, personal-scope, never bundled), opens a log record, and finalizes it with the persisted map's hash. Exit 0 = saved; 1 = the map was invalid (fix it); 3 = the tesser skill's `scripts/setup` hasn't been run; 4 = environment, keep the file and retry.
 
 3. **Confirm in one plain line** — "saved; next time I can answer this from cache." Then stop. No markup, no path, no hash in front of the developer.
 

@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Entry point for /tesser-finalize — forwards to the tesser repo's finalize.
+
+This companion skill installs BESIDE the main tesser skill (a top-level entry in
+a .claude/skills dir), but its real work lives in the tesser repo's scripts/:
+`scripts/finalize` execs `validate-digest` and `log-invocation`, which must sit
+together in one dir. A companion referencing a bare `scripts/finalize` resolves it
+against its OWN directory (where no scripts/ exists) — the bug that left
+/tesser-finalize broken while it was undiscoverable.
+
+This shim lets SKILL.md invoke a path relative to THIS skill's own directory
+(self-contained, like tesser-review/check.py) and forwards to the real script,
+resolved from this file's real location. Works under any install shape: a
+project-scoped symlink to the dev repo, or a ~/.claude/skills clone.
+"""
+
+import os
+import sys
+
+here = os.path.dirname(os.path.realpath(__file__))  # <repo>/tesser-finalize
+real = os.path.join(os.path.dirname(here), "scripts", "finalize")  # <repo>/scripts/finalize
+if not os.path.isfile(real):
+    sys.stderr.write(
+        f"tesser-finalize: cannot find the tesser scripts at {real} — is this "
+        "companion still installed inside the tesser repo?\n"
+    )
+    sys.exit(2)
+os.execv(sys.executable, [sys.executable, real, *sys.argv[1:]])
