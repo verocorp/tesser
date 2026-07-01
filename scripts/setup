@@ -33,6 +33,60 @@ def state_root() -> str:
     return os.path.join(os.path.expanduser("~"), ".tesser")
 
 
+def link_companion_skills(repo_root: str) -> None:
+    """Make the nested companion skills (tesser-review/, tesser-finalize/)
+    discoverable. Claude Code scans skills only one level deep, so a companion
+    nested inside this repo is invisible until it is linked up to a top-level
+    entry beside the `tesser` skill.
+
+    Auto-wiring happens ONLY for the documented personal install (git clone ->
+    ~/.claude/skills/tesser): the companions are linked as siblings there. If
+    tesser is NOT installed at ~/.claude/skills/tesser — e.g. a dev checkout
+    symlinked project-scoped into some project's .claude/skills — this is a
+    no-op: setup neither guesses a project's skills dir nor clutters
+    ~/.claude/skills. TESSER_SKILLS_DIR forces the target (tests). Best-effort:
+    a failure here never fails setup (the venv is the critical part).
+    """
+    forced = os.environ.get("TESSER_SKILLS_DIR")
+    if forced:
+        skills_dir = forced
+    else:
+        personal = os.path.join(os.path.expanduser("~"), ".claude", "skills")
+        tesser_link = os.path.join(personal, "tesser")
+        if not (
+            os.path.lexists(tesser_link)
+            and os.path.realpath(tesser_link) == os.path.realpath(repo_root)
+        ):
+            return  # not the documented personal install — leave the environment alone
+        skills_dir = personal
+    try:
+        os.makedirs(skills_dir, exist_ok=True)
+    except OSError as e:
+        sys.stderr.write(f"setup: could not prepare skills dir {skills_dir}: {e}\n")
+        return
+    for name in ("tesser-review", "tesser-finalize"):
+        target = os.path.join(repo_root, name)
+        link = os.path.join(skills_dir, name)
+        if not os.path.isdir(target):
+            continue  # companion absent in this checkout; skip
+        try:
+            if os.path.islink(link):
+                if os.path.realpath(link) == os.path.realpath(target):
+                    continue  # already correct
+                os.unlink(link)
+            elif os.path.exists(link):
+                # A real directory/file we did not create — never clobber it.
+                sys.stderr.write(
+                    f"setup: {link} exists and is not our symlink; leaving it "
+                    f"(/{name} may not resolve to this repo)\n"
+                )
+                continue
+            os.symlink(target, link)
+            print(f"setup: linked /{name} -> {target}")
+        except OSError as e:
+            sys.stderr.write(f"setup: could not link /{name}: {e}\n")
+
+
 def main() -> int:
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     requirements = os.path.join(repo_root, "requirements.txt")
@@ -53,6 +107,7 @@ def main() -> int:
             stamp = f.read().strip()
     if os.access(venv_python, os.X_OK) and stamp == req_hash:
         print(f"setup: venv at {venv} is up to date (requirements unchanged)")
+        link_companion_skills(repo_root)
         return 0
 
     # The log may live next to the venv; keep the state root private (0700,
@@ -80,6 +135,7 @@ def main() -> int:
     # leave the venv unstamped so the next run retries.
     with open(stamp_path, "w", encoding="utf-8") as f:
         f.write(req_hash + "\n")
+    link_companion_skills(repo_root)
     print("setup: done")
     return 0
 
